@@ -4,8 +4,13 @@ import tensorflow as tf
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense
 
-from cephalus.kernel import StateKernel, StateKernelFrame, StateKernelModule
-from cephalus.support import size_from_shape
+from cephalus.frame import StateFrame
+from cephalus.kernel import StateKernel
+from cephalus.modules.interface import StateKernelModule
+
+__all__ = [
+    'StateAutoencoder'
+]
 
 
 class StateAutoencoder(StateKernelModule):
@@ -15,7 +20,7 @@ class StateAutoencoder(StateKernelModule):
 
     def configure(self, kernel: StateKernel) -> None:
         super().configure(kernel)
-        input_size = size_from_shape(kernel.config.input_shape)
+        input_size = kernel.config.input_width
         self._decoder = Sequential([
             Dense(input_size + kernel.config.state_width, activation='tanh'),
             Dense(input_size + kernel.config.state_width)
@@ -24,11 +29,11 @@ class StateAutoencoder(StateKernelModule):
     def get_trainable_weights(self) -> List[tf.Variable]:
         return self._decoder.trainable_weights
 
-    def get_loss(self, decision_frame: StateKernelFrame) -> Optional[tf.Tensor]:
-        state_prediction = decision_frame.current_state
+    def get_loss(self, frame: StateFrame) -> Optional[tf.Tensor]:
+        state_prediction = frame.current_state
         flat_reconstruction = self._decoder(state_prediction[tf.newaxis, :])[0]
         flat_reconstruction_target = tf.concat([
-            decision_frame.previous_state,
-            tf.reshape(decision_frame.input_tensor, (decision_frame.input_tensor.size,))
+            frame.previous_state,
+            frame.attended_input_tensor
         ], axis=0)
         return tf.reduce_sum(tf.square(flat_reconstruction_target - flat_reconstruction))

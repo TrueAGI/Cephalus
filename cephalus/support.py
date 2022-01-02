@@ -4,6 +4,13 @@ from typing import Union, Sequence, Tuple
 
 import tensorflow as tf
 
+__all__ = [
+    'RawTensorShape',
+    'StandardizedTensorShape',
+    'standardize_tensor_shape',
+    'size_from_shape',
+]
+
 RawTensorShape = Union[int, Sequence[int, ...], tf.Tensor]
 StandardizedTensorShape = Tuple[int, ...]
 
