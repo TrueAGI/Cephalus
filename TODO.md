@@ -1,9 +1,8 @@
 # Planned
 
-* Add a license.
 * Unit tests!
 * Better/more documentation.
-* Support multithreading.
+* Support multithreading explicitly.
 * Research prior work on the various algorithms I have implemented or plan 
   to implement in cephalus.modules.retroactive_loss to determine which I
   can actually claim as my own inventions, which I can claim as novel
@@ -38,3 +37,4 @@
   **What I actually did**: Renamed `RetroactiveGradientProvider` to 
   `RetroactiveLossProvider` and refactored the kernel to use only
   gradients derived from module losses.
+* Add a license. **What I did:** Added the Apache 2.0 license. 

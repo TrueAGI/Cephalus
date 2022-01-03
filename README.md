@@ -1,7 +1,5 @@
 # Cephalus
 
-*a neural OS*
-
 
 ---
 
