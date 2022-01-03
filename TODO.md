@@ -1,6 +1,8 @@
 # Planned
 
 * Add a license.
+* Unit tests!
+* Better/more documentation.
 * Support multithreading.
 * Research prior work on the various algorithms I have implemented or plan 
   to implement in cephalus.modules.retroactive_loss to determine which I

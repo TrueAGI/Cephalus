@@ -13,6 +13,7 @@ improvements to the state representation made at the behest of other tasks.
 
 
 ---
+
 ## Project Status
 
 Cephalus is currently very much a work in progress. There's a lot to be done 
@@ -27,6 +28,7 @@ A few places I can **definitely** use some help:
 
 By all means, open an issue or submit a pull request if you want to jump
 straight in!
+
 ---
 
 
