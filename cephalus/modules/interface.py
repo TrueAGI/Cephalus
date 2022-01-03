@@ -172,6 +172,8 @@ class InputAttentionProvider(StateKernelModule, ABC):
 
 
 class InputProvider(StateKernelModule[Environment], ABC):
+    """A state kernel module which provides inputs to the kernel. Inputs must have the shape
+    (kernel.input_width,) to support input attention mechanisms."""
 
     @abstractmethod
     def get_input(self, environment: 'Environment', frame: 'StateFrame') -> Optional[tf.Tensor]:
