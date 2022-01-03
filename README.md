@@ -12,6 +12,24 @@ the environment is shared among tasks, each task can benefit from the
 improvements to the state representation made at the behest of other tasks.
 
 
+---
+## Project Status
+
+Cephalus is currently very much a work in progress. There's a lot to be done 
+before it's release-ready or even usable at all, frankly. Watch this space for 
+major progress updates, keep an eye on TODO.md for minor progress updates, or 
+say hi if you're looking for a way to contribute.
+
+A few places I can **definitely** use some help:
+* Documentation
+* Unit tests
+* Design discussion
+
+By all means, open an issue or submit a pull request if you want to jump
+straight in!
+---
+
+
 ### A Note on Adaptation of Policy Gradients for State Representation Induction
 
 Any effective policy gradient method can be easily adapted to induce a 
