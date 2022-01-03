@@ -29,7 +29,8 @@ class StateAutoencoder(StateKernelModule):
     def get_trainable_weights(self) -> List[tf.Variable]:
         return self._decoder.trainable_weights
 
-    def get_loss(self, previous_frame: StateFrame) -> Optional[tf.Tensor]:
+    def get_loss(self, previous_frame: 'StateFrame',
+                 current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         state_prediction = previous_frame.current_state
         flat_reconstruction = self._decoder(state_prediction[tf.newaxis, :])[0]
         flat_reconstruction_target = tf.concat([

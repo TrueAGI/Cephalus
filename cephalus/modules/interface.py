@@ -14,7 +14,6 @@ __all__ = [
     'RetroactiveLossProvider',
     'InputAttentionProvider',
     'InputProvider',
-    'GradientProvider',
 ]
 
 

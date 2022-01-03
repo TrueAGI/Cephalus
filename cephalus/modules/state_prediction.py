@@ -31,7 +31,8 @@ class StandardStatePredictionProvider(StatePredictionProvider):
     def get_trainable_weights(self) -> List[tf.Variable]:
         return self._state_model.trainable_weights
 
-    def get_loss(self, previous_frame: 'StateFrame') -> Optional[tf.Tensor]:
+    def get_loss(self, previous_frame: 'StateFrame',
+                 current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         return None  # No intrinsic loss.
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
@@ -50,7 +51,8 @@ class NullStatePredictionProvider(StatePredictionProvider):
     def get_trainable_weights(self) -> List[tf.Variable]:
         return []
 
-    def get_loss(self, previous_frame: 'StateFrame') -> Optional[tf.Tensor]:
+    def get_loss(self, previous_frame: 'StateFrame',
+                 current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         return None
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
@@ -71,7 +73,8 @@ class UntrainedStatePredictionProvider(StatePredictionProvider):
     def get_trainable_weights(self) -> List[tf.Variable]:
         return []
 
-    def get_loss(self, previous_frame: 'StateFrame') -> Optional[tf.Tensor]:
+    def get_loss(self, previous_frame: 'StateFrame',
+                 current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         return None
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
