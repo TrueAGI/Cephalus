@@ -27,7 +27,7 @@ Usage:
     kernel.configure(config)
 
     # Create and run the state stream.
-    stream = StateStream(kernel, environment)
+    stream = StateStream(kernel)
     stream.run()
 
 The classes provided by this library are thread-compatible but not thread safe. You can use the

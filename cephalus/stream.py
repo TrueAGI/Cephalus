@@ -16,7 +16,7 @@ Environment = TypeVar('Environment')
 class StateStream(Generic[Environment]):
     """Harnesses a state kernel to make a sequence of state predictions within an environment."""
 
-    def __init__(self, kernel: StateKernel[Environment], environment: Environment):
+    def __init__(self, kernel: StateKernel[Environment], environment: Environment = None):
         self._kernel = kernel
         self._environment = environment
         self._previous_frame: Optional[StateFrame] = None
