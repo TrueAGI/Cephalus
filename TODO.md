@@ -1,9 +1,13 @@
 # Planned
 
-* Get rid of `GradientProvider`. Instead, measure the state gradient
-  directly via the gathered losses at some point after the previous
-  state is updated. All gradients should be provided via the tape.
+* Add a license.
 * Support multithreading.
+* Research prior work on the various algorithms I have implemented or plan 
+  to implement in cephalus.modules.retroactive_loss to determine which I
+  can actually claim as my own inventions, which I can claim as novel
+  applications to a new domain (state representation induction, as opposed
+  to action selection), and which I can cite existing research for because 
+  they aren't novel after all.
 
 
 # Completed
@@ -26,3 +30,9 @@
   the attention provider module type to combine an arbitrary number of
   inputs received from the input providers into a single signal for the
   purpose of updating the state.
+* Get rid of `GradientProvider`. Instead, measure the state gradient
+  directly via the gathered losses at some point after the previous
+  state is updated. All gradients should be provided via the tape.
+  **What I actually did**: Renamed `RetroactiveGradientProvider` to 
+  `RetroactiveLossProvider` and refactored the kernel to use only
+  gradients derived from module losses.

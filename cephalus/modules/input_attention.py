@@ -42,7 +42,7 @@ class StandardInputAttentionProvider(InputAttentionProvider):
     def get_trainable_weights(self) -> List[tf.Variable]:
         return self._key_model.trainable_weights
 
-    def get_loss(self, frame: StateFrame) -> Optional[tf.Tensor]:
+    def get_loss(self, previous_frame: StateFrame) -> Optional[tf.Tensor]:
         return None  # No intrinsic loss.
 
     def attend_inputs(self, frame: 'StateFrame') -> None:

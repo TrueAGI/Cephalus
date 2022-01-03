@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 __all__ = [
     'StateKernelModule',
     'StatePredictionProvider',
-    'GradientPredictionProvider',
+    'RetroactiveLossProvider',
     'InputAttentionProvider',
     'InputProvider',
     'GradientProvider',
@@ -40,7 +40,8 @@ class StateKernelModule(Generic[Environment], ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def get_loss(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
+    def get_loss(self, previous_frame: 'StateFrame',
+                 current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         """Return the computed loss for any models, or None if there are no trainable weights.
         Values which have already been computed (i.e. the current state) will not be recomputed. Use
         the provided gradient tape in the decision frame to get the gradients of the parameters.
@@ -131,21 +132,23 @@ class StatePredictionProvider(StateKernelModule, ABC):
         raise NotImplementedError()
 
 
-class GradientPredictionProvider(StateKernelModule, ABC):
-    """A state kernel module which provides state gradient predictions for its kernel. At most one
-    gradient prediction provider can be configured for a given kernel."""
+class RetroactiveLossProvider(StateKernelModule, ABC):
+    """A state kernel module which provides retroactive state gradients for its kernel. At most one
+    retroactive gradient provider can be configured for a given kernel."""
+
+    def get_trainable_weights(self) -> List[tf.Variable]:
+        """Return a list of the trainable weights."""
+        # Models used to predict retroactive gradients should not be trained using the state loss.
+        # That means we shouldn't return their trainable weights here. They'll be trained instead
+        # by the call to train_retroactive_gradient()
+        return []
 
     @abstractmethod
-    def configure(self, kernel: 'StateKernel') -> None:
-        """Configure the module to work with a configured state kernel, building any neural models
-        that are required. Notify the kernel that this module will be its gradient prediction
-        provider."""
-        super().configure(kernel)
-        kernel.gradient_prediction_provider = self
-
-    @abstractmethod
-    def predict_future_state_gradient(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
-        """Predict the gradient for the previous state given the current state."""
+    def train_retroactive_loss(self, previous_frame: StateFrame,
+                               current_frame: StateFrame) -> None:
+        """Train the model(s) used to predict the combined state loss. (Models used for this
+        purpose have a separate loss and trainable weights than those that are reported to the
+        kernel, hence the separate training method.)"""
         raise NotImplementedError()
 
 
@@ -174,13 +177,4 @@ class InputProvider(StateKernelModule[Environment], ABC):
     @abstractmethod
     def get_input(self, environment: 'Environment', frame: 'StateFrame') -> Optional[tf.Tensor]:
         """Return an input tensor produced by this module."""
-        raise NotImplementedError()
-
-
-class GradientProvider(StateKernelModule[Environment], ABC):
-
-    @abstractmethod
-    def get_current_state_gradient(self, environment: 'Environment',
-                                   frame: 'StateFrame') -> Optional[tf.Tensor]:
-        """Return the gradient for the current state given the environment."""
         raise NotImplementedError()

@@ -2,7 +2,7 @@
 This module defines the state kernel and the abstract interfaces for its modules."""
 
 from typing import Optional, Union, Iterable, Tuple, Set, TypeVar, \
-    Generic
+    Generic, List
 
 import tensorflow as tf
 from tensorflow.keras.optimizers import Optimizer
@@ -10,7 +10,7 @@ from tensorflow.keras.optimizers import Optimizer
 from cephalus.config import StateKernelConfig
 from cephalus.frame import StateFrame
 from cephalus.modules.interface import StateKernelModule, StatePredictionProvider, \
-    GradientPredictionProvider, GradientProvider, InputProvider, InputAttentionProvider
+    RetroactiveLossProvider, GradientProvider, InputProvider, InputAttentionProvider
 
 __all__ = [
     'StateKernel'
@@ -43,7 +43,7 @@ class StateKernel(Generic[Environment]):
     _modules: Set['StateKernelModule[Environment]']
     _input_attention_provider: 'InputAttentionProvider' = None
     _state_prediction_provider: 'StatePredictionProvider' = None
-    _gradient_prediction_provider: 'GradientPredictionProvider' = None
+    _retroactive_gradient_provider: 'RetroactiveLossProvider' = None
     _trainable_weights: Tuple[tf.Variable, ...] = None
 
     def __init__(self, modules: Iterable['StateKernelModule[Environment]'] = None,
@@ -103,10 +103,9 @@ class StateKernel(Generic[Environment]):
         self.predict_state(frame)
 
         if previous_frame is not None:
-            self.update_previous_frame(previous_frame, frame)
             # We train even if there were no external gradients, as some modules have
             # internally-induced gradients.
-            self.train(previous_frame)
+            self.train(previous_frame, frame)
 
         # Ask the tasks for the current state's gradients and record them for later training.
         state_gradients = []
@@ -172,23 +171,23 @@ class StateKernel(Generic[Environment]):
         self._state_prediction_provider = module
 
     @property
-    def gradient_prediction_provider(self) -> Optional['GradientPredictionProvider']:
-        """The module which is designated as the state kernel's state gradient prediction
-        provider. The state gradient prediction provider provides a prediction of the previous
-        state's gradient w.r.t. the current state's loss. This is conceptually analogous to the
-        future reward predictions provided by the next state/action pair to train the previous
+    def retroactive_gradient_provider(self) -> Optional['RetroactiveLossProvider']:
+        """The module which is designated as the state kernel's retroactive state gradient
+        provider. The retroactive state gradient provider augments the state gradient with
+        additional components based on its predicted effect on the next state. This is conceptually
+        analogous to the Q values provided by the next state/action pair to train the previous
         state/action pair in reinforcement learning algorithms such as SARSA or Q-Learning."""
-        return self._gradient_prediction_provider
+        return self._retroactive_gradient_provider
 
-    @gradient_prediction_provider.setter
-    def gradient_prediction_provider(self, module: 'GradientPredictionProvider') -> None:
-        """The module which is designated as the state kernel's state gradient prediction
-        provider. The state gradient prediction provider provides a prediction of the previous
-        state's gradient w.r.t. the current state's loss. This is conceptually analogous to the
-        future reward predictions provided by the next state/action pair to train the previous
+    @retroactive_gradient_provider.setter
+    def retroactive_gradient_provider(self, module: 'RetroactiveLossProvider') -> None:
+        """The module which is designated as the state kernel's retroactive state gradient
+        provider. The retroactive state gradient provider augments the state gradient with
+        additional components based on its predicted effect on the next state. This is conceptually
+        analogous to the Q values provided by the next state/action pair to train the previous
         state/action pair in reinforcement learning algorithms such as SARSA or Q-Learning."""
-        assert self._gradient_prediction_provider is None
-        self._gradient_prediction_provider = module
+        assert self._retroactive_gradient_provider is None
+        self._retroactive_gradient_provider = module
 
     @property
     def input_attention_provider(self) -> Optional['InputAttentionProvider']:
@@ -260,38 +259,30 @@ class StateKernel(Generic[Environment]):
         assert self._trainable_weights is not None
         return self._trainable_weights
 
-    def get_loss(self, frame: StateFrame) -> Optional[tf.Tensor]:
-        """Return the computed loss for the neural models used by the state kernel and its modules.
-        Values which have already been computed (i.e. the current state) will not be recomputed. Use
-        the provided gradient tape in the decision frame to get the gradients of the parameters."""
+    def get_loss(self, previous_frame: StateFrame,
+                 current_frame: StateFrame) -> Optional[tf.Tensor]:
+        """Return the computed loss for the previous frame's state tensor. Values which have already
+        been computed for the frame (i.e. the current state) will not be recomputed. Use the
+        provided gradient tape in the decision frame to get the gradients of the parameters."""
         assert self._config is not None
-        assert frame.current_state is not None
+        assert previous_frame.current_state is not None
 
-        losses = []
+        losses: List[tf.Tensor] = []
+        total_scale = 0.0
         for module in self._modules:
-            module_loss = module.get_loss(frame)
-            if module_loss is not None:
+            module_loss = module.get_loss(previous_frame, current_frame)
+            if module_loss is not None and module.loss_scale > 0.0:
                 # noinspection PyTypeChecker
-                losses.append(module.loss_scale * module_loss)
+                scaled_module_loss: tf.Tensor = module.loss_scale * module_loss
+                losses.append(scaled_module_loss)
+                total_scale += module.loss_scale
 
-        # TODO: Do we want to allow scaling of state and gradient prediction losses computed here?
-        if frame.current_state_gradient is not None:
-            state_prediction = frame.current_state
-            state_target = tf.stop_gradient(state_prediction +
-                                            frame.current_state_gradient)
-            state_loss = tf.reduce_sum(tf.square(state_target - state_prediction))
-            losses.append(state_loss)
-
-            gradient_prediction = frame.future_gradient_prediction
-            if gradient_prediction is not None:
-                gradient_target = frame.current_state_gradient
-                gradient_loss = tf.reduce_sum(tf.square(gradient_target - gradient_prediction))
-                losses.append(gradient_loss)
-
+        assert total_scale > 0.0 or not losses
         if len(losses) == 1:
-            return losses[0]
+            # noinspection PyTypeChecker
+            return losses[0] / total_scale
         elif losses:
-            return tf.add_n(losses)
+            return tf.add_n(losses) / total_scale
         else:
             return None
 
@@ -357,76 +348,35 @@ class StateKernel(Generic[Environment]):
         new_state = tf.clip_by_value(new_state, -1e6, 1e6)
         frame.current_state = new_state
 
-    def predict_future_state_gradient(self, frame: StateFrame) -> Optional[tf.Tensor]:
-        """Predict the expected gradient of the previous state w.r.t. the current state's loss."""
-        assert self._config is not None
-        if self._gradient_prediction_provider is None:
-            return None
-        return self._gradient_prediction_provider.predict_future_state_gradient(frame)
-
-    def update_previous_frame(self, previous_frame: StateFrame,
-                              new_frame: StateFrame) -> None:
-        """Update the previous frame's state gradient with the gradient from the current frame."""
-        assert previous_frame is not None
-        # Gather gradients for the previous state.
-        state_gradients = []
-        state_gradient_weights = []
-        if previous_frame.current_state_gradient is not None:
-            state_gradients.append(previous_frame.current_state_gradient)
-            state_gradient_weights.append(1.0)
-        future_gradient = self.predict_future_state_gradient(new_frame)
-        new_frame.future_gradient_prediction = future_gradient
-        if future_gradient is not None:
-            assert not tf.reduce_any(tf.math.is_nan(future_gradient))
-            state_gradients.append(future_gradient)
-            state_gradient_weights.append(self.future_gradient_coefficient)
-
-        # Combine the gathered gradients and update the frame.
-        if state_gradients:
-            if len(state_gradients) == 1:
-                combined_gradient = state_gradients[0]
-            else:
-                # noinspection PyTypeChecker
-                gradient_total = tf.add_n([weight * gradient for weight, gradient
-                                           in zip(state_gradient_weights, state_gradients)])
-                if self.stabilized_gradient:
-                    weight_total = sum(state_gradient_weights)
-                    combined_gradient = gradient_total / weight_total
-                else:
-                    combined_gradient = gradient_total
-            assert not tf.reduce_any(tf.math.is_nan(combined_gradient))
-            previous_frame.current_state_gradient = combined_gradient
-
-    def train(self, frame: StateFrame) -> None:
+    def train(self, previous_frame: StateFrame, current_frame: StateFrame) -> None:
         """Train the neural models used by the state kernel and its modules."""
         assert self._config is not None
-        assert not frame.trained
-        assert frame.tape is not None
+        assert not previous_frame.trained
+        assert previous_frame.tape is not None
 
         try:
-            if frame.current_state_gradient is None:
-                return  # Nothing to do.
+            loss = self.get_loss(previous_frame, current_frame)
+            if loss is None:
+                loss = tf.zeros(())
+
+            tf.assert_rank(loss, 0)
+            assert not tf.math.is_nan(loss)
 
             weights = self.get_trainable_weights()
-            if not weights:
-                return  # Nothing to do.
-
-            loss = self.get_loss(frame)
-            if loss is None:
-                return  # Nothing to do.
-
-            tf.assert_equal(tf.size(loss), 1)
-            while tf.rank(loss) > 0:
-                loss = loss[0]
-            assert not tf.reduce_any(tf.math.is_nan(loss))
-
-            loss_gradients = frame.tape.gradient(loss, weights)
+            loss_gradients = previous_frame.tape.gradient(loss, weights)
             assert not any(tf.reduce_any(tf.math.is_nan(loss_gradient))
                            for loss_gradient in loss_gradients
                            if loss_gradient is not None)
             loss_gradients, _ = tf.clip_by_global_norm(loss_gradients, 1.0)
             self.optimizer.apply_gradients(zip(loss_gradients, weights))
+
+            # Train the loss providers here, before we close the tape, in case they need gradient
+            # information.
+            previous_frame.combined_loss = loss
+            for module in self._modules:
+                if isinstance(module, RetroactiveLossProvider):
+                    module.train_retroactive_loss(previous_frame, current_frame)
         finally:
-            frame.tape.__exit__(None, None, None)
-            frame.tape = None
-            frame.trained = True
+            previous_frame.tape.__exit__(None, None, None)
+            previous_frame.tape = None
+            previous_frame.trained = True
