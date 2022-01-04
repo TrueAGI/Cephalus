@@ -42,8 +42,10 @@ class LossStateTD(RetroactiveLossProvider):
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
+        # Originally this used a softplus activation, but there's no guarantee that loss is
+        # positive.
         self._loss_model = Sequential(clone_model(kernel.config.model_template).layers[:-1] +
-                                      [Dense(1, 'softplus')])
+                                      [Dense(1,)])
         # We use SGD irrespective of which optimizer the kernel is configured to use, because SGD
         # provides more stable estimates of the input gradients that other training methods. This
         # model's sole purpose is to provide input gradients to train the state model with; the
@@ -54,7 +56,8 @@ class LossStateTD(RetroactiveLossProvider):
         self._loss_model.build(input_shape=(None, self.state_width))
         super().build()
 
-    def train_retroactive_loss(self, previous_frame: StateFrame, current_frame: StateFrame) -> None:
+    def train_retroactive_loss(self, previous_frame: 'StateFrame',
+                               current_frame: 'StateFrame') -> None:
         assert previous_frame.current_state is not None
         assert previous_frame.attended_input_tensor is not None
         assert previous_frame.combined_loss is not None
@@ -73,7 +76,7 @@ class LossStateTD(RetroactiveLossProvider):
         #       the computation of the state tensor to move in a direction that minimizes loss,
         #       while the loss model defined here only provides the gradients to them, while
         #       striving to provide an accurate estimate of loss.
-        return self._loss_model(current_frame.current_state[tf.newaxis, :])[0]
+        return self._loss_model(current_frame.current_state[tf.newaxis, :])[0, 0]
 
 
 # TODO: The autoencoder-based methods defined in rig.methods.decoder and rig.methods.encoder in the

@@ -71,7 +71,8 @@ class TDAgent(Modeled):
     def choose_action(self, state_input: tf.Tensor):
         assert self._current_decision is None
 
-        decision = ActionDecision(state_input, self.q_model)
+        step = self._previous_decision.step + 1 if self._previous_decision else 0
+        decision = ActionDecision(state_input, self.q_model, step)
         self.action_policy.choose_action(decision)
         self.action_policy.predict_q_value(decision)
         self._current_decision = decision

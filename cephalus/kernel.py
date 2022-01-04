@@ -1,6 +1,6 @@
 """The state kernel is a configurable kernel for online neural learning of sequential state updates.
 This module defines the state kernel and the abstract interfaces for its modules."""
-
+import warnings
 from typing import Optional, Union, Iterable, Tuple, Set, TypeVar, \
     Generic, List
 
@@ -276,10 +276,16 @@ class StateKernel(Modeled, Generic[Environment]):
         for module in self._modules:
             module_loss = module.get_loss(previous_frame, current_frame)
             if module_loss is not None and module.loss_scale > 0.0:
+                assert module_loss.shape == (), "Invalid loss shape returned from %r" % module
                 # noinspection PyTypeChecker
                 scaled_module_loss: tf.Tensor = module.loss_scale * module_loss
                 losses.append(scaled_module_loss)
                 total_scale += module.loss_scale
+                # TODO: Use logging. Also, provide a way for the user to capture loss curves over
+                #       time for each module and retrieve them easily. And modules should be named
+                #       (manually, or else automatically at config time with a reasonable default)
+                #       so we can identify them easily.
+                print("Loss for %s: %s" % (module.__class__.__name__, scaled_module_loss.numpy()))
 
         assert total_scale > 0.0 or not losses
         if len(losses) == 1:
@@ -362,26 +368,30 @@ class StateKernel(Modeled, Generic[Environment]):
             loss = self.get_loss(previous_frame, current_frame)
             if loss is None:
                 loss = tf.zeros(())
-
-            tf.assert_rank(loss, 0)
-            assert not tf.math.is_nan(loss)
-
-            weights = self.get_trainable_weights()
-            loss_gradients = previous_frame.tape.gradient(loss, weights)
-            assert not any(tf.reduce_any(tf.math.is_nan(loss_gradient))
-                           for loss_gradient in loss_gradients
-                           if loss_gradient is not None)
-            loss_gradients, _ = tf.clip_by_global_norm(loss_gradients, 1.0)
-            if any(loss_gradient is not None for loss_gradient in loss_gradients):
-                self.optimizer.apply_gradients(zip(loss_gradients, weights))
-
-            # Train the loss providers here, before we close the tape, in case they need gradient
-            # information.
-            previous_frame.combined_loss = loss
-            for module in self._modules:
-                if isinstance(module, RetroactiveLossProvider):
-                    module.train_retroactive_loss(previous_frame, current_frame)
         finally:
             previous_frame.tape.__exit__(None, None, None)
-            previous_frame.tape = None
-            previous_frame.trained = True
+
+        tf.assert_rank(loss, 0)
+        assert not tf.math.is_nan(loss)
+
+        weights = self.get_trainable_weights()
+        loss_gradients = previous_frame.tape.gradient(loss, weights)
+        assert not any(tf.reduce_any(tf.math.is_nan(loss_gradient))
+                       for loss_gradient in loss_gradients
+                       if loss_gradient is not None)
+        loss_gradients, _ = tf.clip_by_global_norm(loss_gradients, 1.0)
+        gradient_weight_pairs = [(gradient, weight)
+                                 for gradient, weight in zip(loss_gradients, weights)
+                                 if gradient is not None]
+        if gradient_weight_pairs:
+            self.optimizer.apply_gradients(gradient_weight_pairs)
+
+        # Train the loss providers here, before we remove the tape, in case they need gradient
+        # information.
+        previous_frame.combined_loss = loss
+        for module in self._modules:
+            if isinstance(module, RetroactiveLossProvider):
+                module.train_retroactive_loss(previous_frame, current_frame)
+
+        previous_frame.tape = None
+        previous_frame.trained = True

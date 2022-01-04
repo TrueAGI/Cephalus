@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 class ActionDecision:
     state: tf.Tensor
     q_model: 'ProbabilisticModel'
+    step: int
 
     action: tf.Tensor = None
     q_value_prediction: tf.Tensor = None
@@ -72,7 +73,7 @@ class ContinuousActionPolicy(ActionPolicy, ABC):
 
 class DiscreteActionPolicy(ActionPolicy):
 
-    def __init__(self, exploration_policy: Callable[[], bool] = None):
+    def __init__(self, exploration_policy: Callable[[int], bool] = None):
         self.exploration_policy = exploration_policy
 
     def build(self) -> None:
@@ -84,8 +85,8 @@ class DiscreteActionPolicy(ActionPolicy):
     def choose_action(self, decision: ActionDecision) -> None:
         decision.joint_q_value_distribution = decision.q_model(decision.state[tf.newaxis, :])[0]
         q_values = decision.joint_q_value_distribution.sample()
-        if self.exploration_policy is None or not self.exploration_policy():
+        if self.exploration_policy is None or not self.exploration_policy(decision.step):
             decision.action = tf.argmax(q_values)
         else:
-            decision.action = tf.random.uniform((), q_values.shape[-1], dtype=tf.int64)
+            decision.action = tf.random.uniform((), 0, q_values.shape[-1], dtype=tf.int64)
         decision.q_value_distribution = decision.joint_q_value_distribution[decision.action]

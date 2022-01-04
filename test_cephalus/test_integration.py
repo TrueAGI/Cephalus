@@ -5,14 +5,17 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense, Input
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.optimizers import SGD
 from tensorflow_probability import distributions as tfd
 
 from cephalus.config import StateKernelConfig
 from cephalus.frame import StateFrame
 from cephalus.kernel import StateKernel
+from cephalus.modules.autoencoder import StateAutoencoder
+from cephalus.modules.retroactive_loss import LossStateTD
 from cephalus.modules.sensing import sensor
 from cephalus.q.action_policies import DiscreteActionPolicy
+from cephalus.q.epsilon_greedy import EpsilonGreedy
 from cephalus.q.probabilistic_models import ProbabilisticModel
 from cephalus.q.tasks import RewardDrivenTask
 from cephalus.q.td import TDAgent
@@ -62,7 +65,7 @@ class GymEnvSolver:
         return reward, self.reset
 
 
-def test_cartpole():
+def test_cartpole(steps: int = 1000):
     state_width = 10
     input_width = 4
 
@@ -81,11 +84,13 @@ def test_cartpole():
             state_width=state_width,
             input_width=input_width,
             model_template=state_model,
-            optimizer=Adam(),
+            optimizer=SGD(),
             future_gradient_coefficient=0.99,
             stabilized_gradient=True
         )
     )
+    kernel.add_modules(LossStateTD())
+    kernel.add_modules(StateAutoencoder())
 
     print("Building q model.")
 
@@ -99,7 +104,7 @@ def test_cartpole():
     state_input = Input(kernel.state_width, name='state_input')
     shared = q_model_body(state_input)
     q_mean = Dense(2)(shared)
-    q_stddev = Dense(2)(shared)
+    q_stddev = Dense(2, activation='softplus')(shared)
     q_model = Model(state_input, [q_mean, q_stddev])
 
     class ConditionalNormalDistribution(ProbabilisticModel):
@@ -111,11 +116,9 @@ def test_cartpole():
     q_dist = ConditionalNormalDistribution(q_model)
 
     print("Creating action policy.")
-    # We don't use epsilon greedy because the q value distribution is probabilistic, which means it
-    # will handle exploration all on its own. As the distribution converges, the variance in the
-    # predicted q values will decline, causing the exploration rate at a natural rate dictated by
-    # the agent's needs. Search 'Thompson sampling' for an idea of how this works.
-    action_policy = DiscreteActionPolicy()
+    action_policy = DiscreteActionPolicy(
+        exploration_policy=EpsilonGreedy()
+    )
 
     print("Creating agent.")
     agent = TDAgent(
@@ -139,7 +142,7 @@ def test_cartpole():
     print("Creating and running the state stream.")
     # Create and run the state stream.
     stream = StateStream(kernel, environment=solver)
-    stream.run()
+    stream.run(steps=steps)
 
     print("Closing the solver.")
     solver.close()
