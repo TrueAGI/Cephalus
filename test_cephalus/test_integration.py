@@ -3,7 +3,6 @@ from typing import List, Union, Tuple
 import gym
 import numpy as np
 import tensorflow as tf
-from gym.spaces import Discrete
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.optimizers import Adam
@@ -54,6 +53,7 @@ class GymEnvSolver:
         return float(self.reset)
 
     def objective(self, action: tf.Tensor) -> Tuple[float, bool]:
+        # TODO: The agent should also be able to sense what action it took.
         if self.visualize:
             self.env.render()
         self.observation, reward, self.reset, _ = self.env.step(action.numpy())
