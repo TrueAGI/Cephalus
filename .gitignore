@@ -1,1 +1,6 @@
 .idea/
+.benchmarks/
+.pytest_cache/
+/.benchmarks/
+__pycache__/
+*.pyc
