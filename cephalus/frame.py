@@ -4,12 +4,15 @@ from typing import Optional, List, Union, Dict, Any, TYPE_CHECKING
 import tensorflow as tf
 
 if TYPE_CHECKING:
-    from state.modules.interface import StateKernelModule
+    from cephalus.modules.interface import StateKernelModule
 
 __all__ = [
     'StateFrame'
 ]
 
+
+# TODO: Consider renaming StateFrame to StateDecision, or ActionDecision to ActionFrame, to
+#       emphasize their parallel nature.
 
 @dataclass
 class StateFrame:

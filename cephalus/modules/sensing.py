@@ -6,11 +6,11 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Layer
 
-from state.modules.interface import Sensor
+from cephalus.modules.interface import Sensor
 
 if TYPE_CHECKING:
-    from state.kernel import StateKernel
-    from state.frame import StateFrame
+    from cephalus.kernel import StateKernel
+    from cephalus.frame import StateFrame
 
 
 Environment = TypeVar('Environment')

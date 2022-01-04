@@ -19,11 +19,11 @@ from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import clone_model
 
-from state.modules.interface import RetroactiveLossProvider
+from cephalus.modules.interface import RetroactiveLossProvider
 
 if TYPE_CHECKING:
-    from state.frame import StateFrame
-    from state.kernel import StateKernel
+    from cephalus.frame import StateFrame
+    from cephalus.kernel import StateKernel
 
 
 # NOTE: This class reimplements the method defined in rig.methods.backpropagation in the

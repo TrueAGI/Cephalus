@@ -7,9 +7,9 @@ from typing import Optional, Union, Iterable, Tuple, Set, TypeVar, \
 import tensorflow as tf
 from tensorflow.keras.optimizers import Optimizer
 
-from state.config import StateKernelConfig
-from state.frame import StateFrame
-from state.modules.interface import StateKernelModule, StatePredictionProvider, \
+from cephalus.config import StateKernelConfig
+from cephalus.frame import StateFrame
+from cephalus.modules.interface import StateKernelModule, StatePredictionProvider, \
     RetroactiveLossProvider, GradientProvider, Sensor, InputAttentionProvider
 
 __all__ = [
@@ -84,11 +84,11 @@ class StateKernel(Generic[Environment]):
 
         # Ensure invariants and constraints are respected.
         if self._input_attention_provider is None:
-            from state.modules.input_attention import StandardInputAttentionProvider
+            from cephalus.modules.input_attention import StandardInputAttentionProvider
             module = StandardInputAttentionProvider()
             self.add_modules(module)
         if self._state_prediction_provider is None:
-            from state.modules.state_prediction import StandardStatePredictionProvider
+            from cephalus.modules.state_prediction import StandardStatePredictionProvider
             module = StandardStatePredictionProvider()
             self.add_modules(module)
         if self._initial_state is None:
