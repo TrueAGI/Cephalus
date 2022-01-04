@@ -1,16 +1,17 @@
-from typing import Union, Optional, List, TYPE_CHECKING
+from typing import Union, Optional, TYPE_CHECKING, Tuple
 
 import tensorflow as tf
 
+from cephalus.modeled import Modeled
 from cephalus.q.action_policies import ActionPolicy, ActionDecision
 
 if TYPE_CHECKING:
     from cephalus.q.probabilistic_models import ProbabilisticModel
 
 
-class TDAgent:
+class TDAgent(Modeled):
 
-    def __init__(self, q_model: ProbabilisticModel, action_policy: ActionPolicy,
+    def __init__(self, q_model: 'ProbabilisticModel', action_policy: ActionPolicy,
                  discount: float, stabilize: bool = True):
         self._q_model = q_model
         self._action_policy = action_policy
@@ -21,15 +22,19 @@ class TDAgent:
         self._current_decision = None
 
     @property
-    def q_model(self) -> ProbabilisticModel:
+    def q_model(self) -> 'ProbabilisticModel':
         return self._q_model
 
     @property
     def action_policy(self) -> ActionPolicy:
         return self._action_policy
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        return self._q_model.trainable_weights + self._action_policy.get_trainable_weights()
+    def build(self) -> None:
+        self._q_model.build()
+        self._action_policy.build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return self._q_model.get_trainable_weights() + self._action_policy.get_trainable_weights()
 
     def _update_previous_decision(self) -> None:
         if not self._previous_decision:
@@ -63,10 +68,10 @@ class TDAgent:
         self._update_previous_decision()
         return self._close_previous_decision()
 
-    def choose_action(self, state: tf.Tensor):
+    def choose_action(self, state_input: tf.Tensor):
         assert self._current_decision is None
 
-        decision = ActionDecision(state, self.q_model)
+        decision = ActionDecision(state_input, self.q_model)
         self.action_policy.choose_action(decision)
         self.action_policy.predict_q_value(decision)
         self._current_decision = decision

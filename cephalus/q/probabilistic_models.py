@@ -1,13 +1,15 @@
 from abc import ABC, abstractmethod
-from typing import Union, List
+from typing import Union, List, Tuple
 
 import tensorflow as tf
 from tensorflow.keras import optimizers, losses
 from tensorflow.python.keras import Model
 from tensorflow_probability import distributions as tfd
 
+from cephalus.modeled import Modeled
 
-class ProbabilisticModelBase(ABC):
+
+class ProbabilisticModelBase(Modeled, ABC):
 
     def __init__(self, optimizer: Union[str, optimizers.Optimizer] = None):
         self.optimizer = optimizers.get(optimizer) if optimizer else None
@@ -20,11 +22,6 @@ class ProbabilisticModelBase(ABC):
     @property
     @abstractmethod
     def output_shape(self):
-        raise NotImplementedError()
-
-    @property
-    @abstractmethod
-    def trainable_weights(self) -> List[tf.Variable]:
         raise NotImplementedError()
 
     @abstractmethod
@@ -57,7 +54,7 @@ class ProbabilisticModelBase(ABC):
             samples: Union[tf.Tensor, List[tf.Tensor]]) -> None:
         def loss():
             return self.compiled_loss(inputs, samples)
-        self.optimizer.minimize(loss, self.trainable_weights)
+        self.optimizer.minimize(loss, self.get_trainable_weights())
 
 
 class ProbabilisticModel(ProbabilisticModelBase):
@@ -80,13 +77,16 @@ class ProbabilisticModel(ProbabilisticModelBase):
             output_shape = output_shape[0]
         return output_shape
 
+    def build(self) -> None:
+        assert self.parameter_model.built
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return tuple(self.parameter_model.trainable_weights)
+
     @abstractmethod
     def __call__(self, inputs: Union[tf.Tensor, List[tf.Tensor]]) -> tfd.Distribution:
         raise NotImplementedError()
-
-    @property
-    def trainable_weights(self) -> List[tf.Variable]:
-        return self.parameter_model.trainable_weights
 
 
 class DeterministicModel(ProbabilisticModel):

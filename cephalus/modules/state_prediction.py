@@ -1,4 +1,4 @@
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Tuple
 
 import tensorflow as tf
 from tensorflow.keras import Model
@@ -28,16 +28,20 @@ class StandardStatePredictionProvider(StatePredictionProvider):
         super().configure(kernel)
         self._state_model = clone_model(kernel.config.model_template)
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        return self._state_model.trainable_weights
+    def build(self) -> None:
+        self._state_model.build(input_shape=(None, self.state_width + self.input_width))
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return tuple(self._state_model.trainable_weights)
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         return None  # No intrinsic loss.
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
-        return self._state_model([frame.previous_state,
-                                  frame.attended_input_tensor])
+        sm_in = tf.concat([frame.previous_state, frame.attended_input_tensor], axis=-1)
+        return self._state_model(sm_in[tf.newaxis, :])[0]
 
 
 class NullStatePredictionProvider(StatePredictionProvider):
@@ -48,8 +52,11 @@ class NullStatePredictionProvider(StatePredictionProvider):
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        return []
+    def build(self) -> None:
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return ()
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
@@ -70,13 +77,16 @@ class UntrainedStatePredictionProvider(StatePredictionProvider):
         super().configure(kernel)
         self._state_model = clone_model(kernel.config.model_template)
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        return []
+    def build(self) -> None:
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return ()
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         return None
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
-        return self._state_model([frame.previous_state,
-                                  frame.attended_input_tensor])
+        sm_in = tf.concat([frame.previous_state, frame.attended_input_tensor], axis=-1)
+        return self._state_model(sm_in[tf.newaxis, :])[0]

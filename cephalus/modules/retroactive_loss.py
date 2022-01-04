@@ -50,22 +50,22 @@ class LossStateTD(RetroactiveLossProvider):
         # actual loss estimates it computes are useless in and of themselves.
         self._loss_model.compile('sgd', 'mse')
 
+    def build(self) -> None:
+        self._loss_model.build(input_shape=(None, self.state_width))
+        super().build()
+
     def train_retroactive_loss(self, previous_frame: StateFrame, current_frame: StateFrame) -> None:
         assert previous_frame.current_state is not None
         assert previous_frame.attended_input_tensor is not None
         assert previous_frame.combined_loss is not None
-        state = previous_frame.current_state[tf.newaxis, :]
-        input_tensor = previous_frame.attended_input_tensor[tf.newaxis, :]
         loss_target = previous_frame.combined_loss[tf.newaxis, tf.newaxis]
-        self._loss_model.fit([state, input_tensor], loss_target)
+        self._loss_model.fit(previous_frame.current_state[tf.newaxis, :], loss_target)
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         assert previous_frame.current_state is not None
         assert previous_frame.attended_input_tensor is not None
         assert previous_frame.combined_loss is None
-        state = previous_frame.current_state[tf.newaxis, :]
-        input_tensor = previous_frame.attended_input_tensor[tf.newaxis, :]
         # NOTE: Thanks to this line, we can't return the loss model's weights in
         #       get_trainable_weights(). If we did, our loss model would be trained to minimize its
         #       *prediction* of loss, irrespective of what the actual loss would be. That's not what
@@ -73,7 +73,7 @@ class LossStateTD(RetroactiveLossProvider):
         #       the computation of the state tensor to move in a direction that minimizes loss,
         #       while the loss model defined here only provides the gradients to them, while
         #       striving to provide an accurate estimate of loss.
-        return self._loss_model([state, input_tensor])
+        return self._loss_model(current_frame.current_state[tf.newaxis, :])[0]
 
 
 # TODO: The autoencoder-based methods defined in rig.methods.decoder and rig.methods.encoder in the

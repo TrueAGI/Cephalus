@@ -3,8 +3,9 @@ from typing import List, Union, Tuple
 import gym
 import numpy as np
 import tensorflow as tf
+from gym.spaces import Discrete
 from tensorflow.keras import Model, Sequential
-from tensorflow.keras.layers import Dense, Input, Concatenate
+from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.optimizers import Adam
 from tensorflow_probability import distributions as tfd
 
@@ -31,8 +32,8 @@ class GymEnvSolver:
         self.reset = True
 
         self.modules = [
-            self.sense_observation,
-            self.sense_reset,
+            sensor(env.observation_space.shape, GymEnvSolver.sense_observation),
+            GymEnvSolver.sense_reset,
             RewardDrivenTask(agent, self.objective)
         ]
 
@@ -45,18 +46,17 @@ class GymEnvSolver:
         self.env.close()
         self.kernel.discard_modules(*self.modules)
 
-    @sensor
     def sense_observation(self, _frame: StateFrame) -> np.ndarray:
         return self.observation
 
-    @sensor
+    @sensor((1,))
     def sense_reset(self, _frame: StateFrame) -> float:
         return float(self.reset)
 
     def objective(self, action: tf.Tensor) -> Tuple[float, bool]:
         if self.visualize:
             self.env.render()
-        self.observation, reward, self.reset, _ = self.env.step(action)
+        self.observation, reward, self.reset, _ = self.env.step(action.numpy())
         if self.reset:
             self.env.reset()
         return reward, self.reset
@@ -66,13 +66,15 @@ def test_cartpole():
     state_width = 10
     input_width = 4
 
-    state_in = Input(state_width, name='state_in')
-    input_in = Input(input_width, name='input_in')
-    concat = Concatenate()([state_in, input_in])
-    hidden = Dense(state_width + input_width, activation='tanh')(concat)
-    state_out = Dense(state_width)(hidden)
-    state_model = Model([state_in, input_in], state_out, name='state_update')
+    print("Building state model.")
+    state_model = Sequential(
+        [
+            Dense(state_width + input_width, activation='tanh'),
+            Dense(state_width)
+        ], name='state_update'
+    )
 
+    print("Creating kernel.")
     kernel = StateKernel()
     kernel.configure(
         StateKernelConfig(
@@ -85,20 +87,20 @@ def test_cartpole():
         )
     )
 
-    env = gym.make('CartPole-v0')
+    print("Building q model.")
 
     # Structure borrowed from https://gym.openai.com/evaluations/eval_EIcM1ZBnQW2LBaFN6FY65g/ and
     # adapted to probability distributions.
     q_model_body = Sequential([
-        Dense(24, input_dim=4, activation='tanh'),
+        Dense(24, input_dim=state_width, activation='tanh'),
         Dense(48, activation='tanh'),
     ])
 
-    state = Input(kernel.input_width, name='state')
-    shared = q_model_body(state)
+    state_input = Input(kernel.state_width, name='state_input')
+    shared = q_model_body(state_input)
     q_mean = Dense(2)(shared)
     q_stddev = Dense(2)(shared)
-    q_model = Model(state, [q_mean, q_stddev])
+    q_model = Model(state_input, [q_mean, q_stddev])
 
     class ConditionalNormalDistribution(ProbabilisticModel):
 
@@ -108,12 +110,14 @@ def test_cartpole():
 
     q_dist = ConditionalNormalDistribution(q_model)
 
+    print("Creating action policy.")
     # We don't use epsilon greedy because the q value distribution is probabilistic, which means it
     # will handle exploration all on its own. As the distribution converges, the variance in the
     # predicted q values will decline, causing the exploration rate at a natural rate dictated by
     # the agent's needs. Search 'Thompson sampling' for an idea of how this works.
     action_policy = DiscreteActionPolicy()
 
+    print("Creating agent.")
     agent = TDAgent(
         q_dist,
         action_policy,
@@ -121,6 +125,10 @@ def test_cartpole():
         stabilize=True
     )
 
+    print("Creating environment.")
+    env = gym.make('CartPole-v0')
+
+    print("Creating solver.")
     solver = GymEnvSolver(
         env,
         kernel,
@@ -128,8 +136,12 @@ def test_cartpole():
         visualize=True
     )
 
+    print("Creating and running the state stream.")
     # Create and run the state stream.
-    stream = StateStream(kernel)
+    stream = StateStream(kernel, environment=solver)
     stream.run()
 
+    print("Closing the solver.")
     solver.close()
+
+    print("Done.")

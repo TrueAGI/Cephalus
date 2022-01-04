@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional, Tuple
 
 import tensorflow as tf
 from tensorflow.keras import Sequential
@@ -26,8 +26,12 @@ class StateAutoencoder(StateKernelModule):
             Dense(input_size + kernel.config.state_width)
         ])
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        return self._decoder.trainable_weights
+    def build(self) -> None:
+        self._decoder.build(input_shape=(None, self.state_width))
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return tuple(self._decoder.trainable_weights)
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:

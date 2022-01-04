@@ -1,9 +1,9 @@
-from typing import List, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Tuple
 
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
-from tensorflow.keras.models import clone_model
 from tensorflow.keras.layers import Dense, Attention
+from tensorflow.keras.models import clone_model
 
 from cephalus.modules.interface import InputAttentionProvider
 
@@ -31,18 +31,28 @@ class StandardInputAttentionProvider(InputAttentionProvider):
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
         self._query_model = Sequential(
-            clone_model(kernel.config.model_template).layers[1:-1],
-            Dense(self.input_width)
+            clone_model(kernel.config.model_template).layers[:-1] +
+            [Dense(self.input_width)]
         )
         self._key_model = Sequential(
-            clone_model(kernel.config.model_template).layers[:-1],
-            Dense(self.input_width)
+            clone_model(kernel.config.model_template).layers[:-1] +
+            [Dense(self.input_width)]
         )
         self._value_model = clone_model(self._key_model)
         self._attention_layer = Attention()
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        return self._key_model.trainable_weights
+    def build(self) -> None:
+        self._query_model.build(input_shape=(None, self.state_width))
+        self._key_model.build(input_shape=(None, self.state_width + self.input_width))
+        self._value_model.build(input_shape=(None, self.state_width + self.input_width))
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
+        return tuple(
+            self._query_model.trainable_weights +
+            self._key_model.trainable_weights +
+            self._value_model.trainable_weights
+        )
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
@@ -61,8 +71,9 @@ class StandardInputAttentionProvider(InputAttentionProvider):
                                   axis=0)
         previous_state = tf.repeat(frame.previous_state[tf.newaxis, :], input_tensors.shape[0],
                                    axis=0)
-        keys = self._key_model([previous_state, input_tensors])
-        values = self._value_model([previous_state, input_tensors])
+        kv_in = tf.concat([previous_state, input_tensors], axis=-1)
+        keys = self._key_model(kv_in)[tf.newaxis, :, :]
+        values = self._value_model(kv_in)[tf.newaxis, :, :]
 
         # query.shape: (batch_size, query_count, channels)
         # keys.shape: (batch_size, value_count, channels)

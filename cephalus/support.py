@@ -11,7 +11,7 @@ __all__ = [
     'size_from_shape',
 ]
 
-RawTensorShape = Union[int, Sequence[int, ...], tf.Tensor]
+RawTensorShape = Union[int, Sequence[int], tf.Tensor]
 StandardizedTensorShape = Tuple[int, ...]
 
 

@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Optional, List, Union, Dict, Any, TYPE_CHECKING, TypeVar, Generic
+from typing import Optional, Union, Dict, Any, TYPE_CHECKING, TypeVar, Generic, Tuple
 
 import tensorflow as tf
+
+from cephalus.modeled import Modeled
 
 if TYPE_CHECKING:
     from cephalus.config import StateKernelConfig
@@ -20,7 +22,7 @@ __all__ = [
 Environment = TypeVar('Environment')
 
 
-class StateKernelModule(Generic[Environment], ABC):
+class StateKernelModule(Modeled, Generic[Environment], ABC):
     """A pluggable module for the state kernel."""
 
     _kernel: Optional['StateKernel'] = None
@@ -32,11 +34,6 @@ class StateKernelModule(Generic[Environment], ABC):
         that are required."""
         assert self._kernel is None, "Kernel module is already configured."
         self._kernel = kernel
-
-    @abstractmethod
-    def get_trainable_weights(self) -> List[tf.Variable]:
-        """Return a list of the trainable weights of the primary and any secondary models."""
-        raise NotImplementedError()
 
     @abstractmethod
     def get_loss(self, previous_frame: 'StateFrame',
@@ -135,16 +132,16 @@ class RetroactiveLossProvider(StateKernelModule, ABC):
     """A state kernel module which provides retroactive state gradients for its kernel. At most one
     retroactive gradient provider can be configured for a given kernel."""
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
         """Return a list of the trainable weights."""
         # Models used to predict retroactive gradients should not be trained using the state loss.
         # That means we shouldn't return their trainable weights here. They'll be trained instead
         # by the call to train_retroactive_gradient()
-        return []
+        return super().get_trainable_weights()
 
     @abstractmethod
-    def train_retroactive_loss(self, previous_frame: StateFrame,
-                               current_frame: StateFrame) -> None:
+    def train_retroactive_loss(self, previous_frame: 'StateFrame',
+                               current_frame: 'StateFrame') -> None:
         """Train the model(s) used to predict the combined state loss. (Models used for this
         purpose have a separate loss and trainable weights than those that are reported to the
         kernel, hence the separate training method.)"""

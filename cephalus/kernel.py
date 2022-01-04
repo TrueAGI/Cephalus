@@ -9,8 +9,9 @@ from tensorflow.keras.optimizers import Optimizer
 
 from cephalus.config import StateKernelConfig
 from cephalus.frame import StateFrame
+from cephalus.modeled import Modeled
 from cephalus.modules.interface import StateKernelModule, StatePredictionProvider, \
-    RetroactiveLossProvider, GradientProvider, Sensor, InputAttentionProvider
+    RetroactiveLossProvider, Sensor, InputAttentionProvider
 
 __all__ = [
     'StateKernel'
@@ -20,7 +21,7 @@ __all__ = [
 Environment = TypeVar('Environment')
 
 
-class StateKernel(Generic[Environment]):
+class StateKernel(Modeled, Generic[Environment]):
     """A configurable kernel for online neural learning of sequential state updates.
 
     The state kernel is initialized by adding one or more kernel modules, each of which provides
@@ -61,7 +62,10 @@ class StateKernel(Generic[Environment]):
                 self._modules.add(module)
                 if self._config:
                     module.configure(self)
-                    self.recompute_trainable_weights()
+                    if self._built:
+                        module.build()
+        if self.is_built:
+            self.recompute_trainable_weights()
 
     def discard_modules(self, *modules: 'StateKernelModule[Environment]') -> None:
         """Remove a module from the state kernel."""
@@ -69,8 +73,8 @@ class StateKernel(Generic[Environment]):
             assert module is not self._state_prediction_provider
             if module in self._modules:
                 self._modules.remove(module)
-                if self._config:
-                    self.recompute_trainable_weights()
+        if self.is_built:
+            self.recompute_trainable_weights()
 
     def configure(self, config: StateKernelConfig) -> None:
         """Configure the state kernel and its modules for a particular environment. The kernel must
@@ -93,12 +97,24 @@ class StateKernel(Generic[Environment]):
             self.add_modules(module)
         if self._initial_state is None:
             self.initial_state = tf.Variable(tf.zeros(config.state_width), name='initial_state')
+        if self._default_input is None:
+            # TODO: Make it possible for this to be a trainable weight, and do that as the default.
+            self.default_input = tf.zeros(config.input_width, name='default_input')
 
+    def build(self):
+        assert self._config is not None
+        for module in self._modules:
+            module.build()
         self.recompute_trainable_weights()
+        super().build()
 
     def step(self, environment: Environment, previous_frame: StateFrame = None) -> StateFrame:
         """Run the kernel in the environment for a single step. Return the new frame."""
+        if not self.is_built:
+            self.build()
+
         frame = self.new_frame(previous_frame)
+
         self.gather_inputs(environment, frame)
         self.input_attention_provider.attend_inputs(frame)
         self.predict_state(frame)
@@ -107,19 +123,6 @@ class StateKernel(Generic[Environment]):
             # We train even if there were no external gradients, as some modules have
             # internally-induced gradients.
             self.train(previous_frame, frame)
-
-        # Ask the tasks for the current state's gradients and record them for later training.
-        state_gradients = []
-        for module in self._modules:
-            if not isinstance(module, GradientProvider):
-                continue
-            state_gradient = module.get_current_state_gradient(environment, frame)
-            if state_gradient is not None:
-                assert not tf.reduce_any(tf.math.is_nan(state_gradient))
-                state_gradients.append(state_gradient)
-        if state_gradients:
-            combined_gradient = tf.add_n(state_gradients) / len(state_gradients)
-            frame.current_state_gradient = combined_gradient
 
         return frame
 
@@ -245,9 +248,9 @@ class StateKernel(Generic[Environment]):
         """Recompute the trainable weights after a configuration or module change."""
         assert self._config
         weights = []
-        if self.initial_state_is_trainable:
+        if self._initial_state_is_trainable:
             weights.append(self.initial_state)
-        if self.default_input_is_trainable:
+        if self._default_input_is_trainable:
             weights.append(self.default_input)
         for module in self._modules:
             weights.extend(module.get_trainable_weights())
@@ -369,7 +372,8 @@ class StateKernel(Generic[Environment]):
                            for loss_gradient in loss_gradients
                            if loss_gradient is not None)
             loss_gradients, _ = tf.clip_by_global_norm(loss_gradients, 1.0)
-            self.optimizer.apply_gradients(zip(loss_gradients, weights))
+            if any(loss_gradient is not None for loss_gradient in loss_gradients):
+                self.optimizer.apply_gradients(zip(loss_gradients, weights))
 
             # Train the loss providers here, before we close the tape, in case they need gradient
             # information.

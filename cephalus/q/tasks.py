@@ -1,4 +1,4 @@
-from typing import Callable, Any, Tuple, Union, List, Optional, TYPE_CHECKING
+from typing import Callable, Any, Tuple, Union, Optional, TYPE_CHECKING
 
 import tensorflow as tf
 
@@ -20,7 +20,11 @@ class RewardDrivenTask(StateKernelModule):
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
 
-    def get_trainable_weights(self) -> List[tf.Variable]:
+    def build(self) -> None:
+        self.agent.build()
+        super().build()
+
+    def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
         return self.agent.get_trainable_weights()
 
     def get_loss(self, previous_frame: 'StateFrame',
