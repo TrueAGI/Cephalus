@@ -1,7 +1,11 @@
 # Planned
 
 * Unit tests!
-* Better/more documentation.
+* Better/more documentation, including:
+  * Move the 'A Note on Adaptation of Policy Gradients for State 
+    Representation Induction' section in [README.md] to a Jupyter notebook
+    and actually demonstrates (1) how it works and (2) the advantages of
+    the particular design decisions made. 
 * Support multithreading explicitly.
 * Research prior work on the various algorithms I have implemented or plan 
   to implement in cephalus.modules.retroactive_loss to determine which I
@@ -9,7 +13,6 @@
   applications to a new domain (state representation induction, as opposed
   to action selection), and which I can cite existing research for because 
   they aren't novel after all.
-
 
 # Completed
 
@@ -38,3 +41,5 @@
   `RetroactiveLossProvider` and refactored the kernel to use only
   gradients derived from module losses.
 * Add a license. **What I did:** Added the Apache 2.0 license. 
+
+[README.md]: README.md
