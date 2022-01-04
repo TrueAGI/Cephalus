@@ -4,9 +4,9 @@ import tensorflow as tf
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense
 
-from cephalus.frame import StateFrame
-from cephalus.kernel import StateKernel
-from cephalus.modules.interface import StateKernelModule
+from state.frame import StateFrame
+from state.kernel import StateKernel
+from state.modules.interface import StateKernelModule
 
 __all__ = [
     'StateAutoencoder'

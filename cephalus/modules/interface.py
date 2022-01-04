@@ -13,7 +13,7 @@ __all__ = [
     'StatePredictionProvider',
     'RetroactiveLossProvider',
     'InputAttentionProvider',
-    'InputProvider',
+    'Sensor',
 ]
 
 
@@ -171,7 +171,7 @@ class InputAttentionProvider(StateKernelModule, ABC):
         raise NotImplementedError()
 
 
-class InputProvider(StateKernelModule[Environment], ABC):
+class Sensor(StateKernelModule[Environment], ABC):
     """A state kernel module which provides inputs to the kernel. Inputs must have the shape
     (kernel.input_width,) to support input attention mechanisms."""
 

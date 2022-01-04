@@ -4,7 +4,7 @@ from typing import Optional, List, Union, Dict, Any, TYPE_CHECKING
 import tensorflow as tf
 
 if TYPE_CHECKING:
-    from cephalus.modules.interface import StateKernelModule
+    from state.modules.interface import StateKernelModule
 
 __all__ = [
     'StateFrame'

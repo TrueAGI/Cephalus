@@ -2,8 +2,8 @@
 
 from typing import Callable, Optional, TypeVar, Generic
 
-from cephalus.frame import StateFrame
-from cephalus.kernel import StateKernel
+from state.frame import StateFrame
+from state.kernel import StateKernel
 
 __all__ = [
     'StateStream'

@@ -7,10 +7,10 @@ from typing import Optional, Union, Iterable, Tuple, Set, TypeVar, \
 import tensorflow as tf
 from tensorflow.keras.optimizers import Optimizer
 
-from cephalus.config import StateKernelConfig
-from cephalus.frame import StateFrame
-from cephalus.modules.interface import StateKernelModule, StatePredictionProvider, \
-    RetroactiveLossProvider, GradientProvider, InputProvider, InputAttentionProvider
+from state.config import StateKernelConfig
+from state.frame import StateFrame
+from state.modules.interface import StateKernelModule, StatePredictionProvider, \
+    RetroactiveLossProvider, GradientProvider, Sensor, InputAttentionProvider
 
 __all__ = [
     'StateKernel'
@@ -50,26 +50,27 @@ class StateKernel(Generic[Environment]):
                  config: Optional[StateKernelConfig] = None):
         self._modules = set()
         if modules:
-            for module in modules:
-                self.add_module(module)
+            self.add_modules(*modules)
         if config is not None:
             self.configure(config)
 
-    def add_module(self, module: 'StateKernelModule[Environment]') -> None:
+    def add_modules(self, *modules: 'StateKernelModule[Environment]') -> None:
         """Add a module to the state kernel."""
-        if module not in self._modules:
-            self._modules.add(module)
-            if self._config:
-                module.configure(self)
-                self.recompute_trainable_weights()
+        for module in modules:
+            if module not in self._modules:
+                self._modules.add(module)
+                if self._config:
+                    module.configure(self)
+                    self.recompute_trainable_weights()
 
-    def discard_module(self, module: 'StateKernelModule[Environment]') -> None:
+    def discard_modules(self, *modules: 'StateKernelModule[Environment]') -> None:
         """Remove a module from the state kernel."""
-        assert module is not self._state_prediction_provider
-        if module in self._modules:
-            self._modules.remove(module)
-            if self._config:
-                self.recompute_trainable_weights()
+        for module in modules:
+            assert module is not self._state_prediction_provider
+            if module in self._modules:
+                self._modules.remove(module)
+                if self._config:
+                    self.recompute_trainable_weights()
 
     def configure(self, config: StateKernelConfig) -> None:
         """Configure the state kernel and its modules for a particular environment. The kernel must
@@ -83,13 +84,13 @@ class StateKernel(Generic[Environment]):
 
         # Ensure invariants and constraints are respected.
         if self._input_attention_provider is None:
-            from cephalus.modules.input_attention import StandardInputAttentionProvider
+            from state.modules.input_attention import StandardInputAttentionProvider
             module = StandardInputAttentionProvider()
-            self.add_module(module)
+            self.add_modules(module)
         if self._state_prediction_provider is None:
-            from cephalus.modules.state_prediction import StandardStatePredictionProvider
+            from state.modules.state_prediction import StandardStatePredictionProvider
             module = StandardStatePredictionProvider()
-            self.add_module(module)
+            self.add_modules(module)
         if self._initial_state is None:
             self.initial_state = tf.Variable(tf.zeros(config.state_width), name='initial_state')
 
@@ -327,7 +328,7 @@ class StateKernel(Generic[Environment]):
         assert frame.input_tensors is None
         input_tensors = [self.default_input]
         for module in self._modules:
-            if not isinstance(module, InputProvider):
+            if not isinstance(module, Sensor):
                 continue
             input_tensor = module.get_input(environment, frame)
             if input_tensor is not None:
