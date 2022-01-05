@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Union, List, Tuple
+from typing import Union, List, Tuple, Type
 
 import tensorflow as tf
-from tensorflow.keras import optimizers, losses
-from tensorflow.python.keras import Model
+from tensorflow.keras import optimizers, losses, Model
+from tensorflow.keras.layers import Layer
 from tensorflow_probability import distributions as tfd
 
 from cephalus.modeled import Modeled
@@ -46,9 +46,14 @@ class ProbabilisticModelBase(Modeled, ABC):
     def compile(self, optimizer: Union[str, optimizers.Optimizer]):
         self.optimizer = optimizers.get(optimizer)
 
+    @staticmethod
+    def distribution_loss(distribution: tfd.Distribution,
+                          samples: Union[tf.Tensor, List[tf.Tensor]]) -> tf.Tensor:
+        return -distribution.log_prob(samples)
+
     def compiled_loss(self, inputs: Union[tf.Tensor, List[tf.Tensor]],
                       samples: Union[tf.Tensor, List[tf.Tensor]]) -> tf.Tensor:
-        return -self.log_prob(inputs, samples)
+        return self.distribution_loss(self(inputs), samples)
 
     def fit(self, inputs: Union[tf.Tensor, List[tf.Tensor]],
             samples: Union[tf.Tensor, List[tf.Tensor]]) -> None:
@@ -59,9 +64,10 @@ class ProbabilisticModelBase(Modeled, ABC):
 
 class ProbabilisticModel(ProbabilisticModelBase):
 
-    def __init__(self, parameter_model: Model):
-        super().__init__(parameter_model.optimizer)
+    def __init__(self, parameter_model: Model, distribution_type: Type[tfd.Distribution]):
+        super().__init__(getattr(parameter_model, 'optimizer', None))
         self.parameter_model = parameter_model
+        self.distribution_type = distribution_type
 
     @property
     def input_shape(self):
@@ -84,30 +90,33 @@ class ProbabilisticModel(ProbabilisticModelBase):
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
         return tuple(self.parameter_model.trainable_weights)
 
-    @abstractmethod
     def __call__(self, inputs: Union[tf.Tensor, List[tf.Tensor]]) -> tfd.Distribution:
-        raise NotImplementedError()
+        parameters = self.parameter_model(inputs)
+        if isinstance(parameters, tf.Tensor):
+            return self.distribution_type(parameters)
+        else:
+            return self.distribution_type(*parameters)
 
 
 class DeterministicModel(ProbabilisticModel):
 
     def __init__(self, parameter_model: Model):
-        super().__init__(parameter_model)
-        self._compiled_loss = parameter_model.compiled_loss
+        if not isinstance(parameter_model, Layer):
+            raise TypeError(type(parameter_model), Layer)
+        super().__init__(parameter_model, tfd.Deterministic)
+        self._compiled_loss = getattr(parameter_model, 'compiled_loss', None)
 
     @property
     def output_shape(self):
         return self.parameter_model.output_shape
 
-    def __call__(self, inputs: Union[tf.Tensor, List[tf.Tensor]]) -> tfd.Distribution:
-        return tfd.Deterministic(loc=self.parameter_model(inputs))
-
     def compile(self, optimizer: Union[str, optimizers.Optimizer]):
         self.optimizer = optimizers.get(optimizer)
 
-    def compiled_loss(self, inputs: Union[tf.Tensor, List[tf.Tensor]],
-                      samples: Union[tf.Tensor, List[tf.Tensor]]) -> tf.Tensor:
-        return self.parameter_model.compiled_loss or losses.MSE
+    def distribution_loss(self, distribution: tfd.Distribution,
+                          samples: Union[tf.Tensor, List[tf.Tensor]]) -> tf.Tensor:
+        loss_func = self.parameter_model.compiled_loss or losses.MSE
+        return loss_func(distribution.mean()[tf.newaxis], samples[tf.newaxis])
 
     def fit(self, inputs: Union[tf.Tensor, List[tf.Tensor]],
             samples: Union[tf.Tensor, List[tf.Tensor]]) -> None:

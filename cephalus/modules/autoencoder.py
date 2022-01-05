@@ -20,10 +20,9 @@ class StateAutoencoder(StateKernelModule):
 
     def configure(self, kernel: StateKernel) -> None:
         super().configure(kernel)
-        input_size = kernel.config.input_width
         self._decoder = Sequential([
-            Dense(input_size + kernel.config.state_width, activation='tanh'),
-            Dense(input_size + kernel.config.state_width)
+            Dense(self.input_width + self.state_width, activation='tanh'),
+            Dense(self.input_width + self.state_width)
         ])
 
     def build(self) -> None:

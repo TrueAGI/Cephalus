@@ -4,18 +4,17 @@
 #       categories with nearby indices as if they were more similar than categories that have
 #       more widely separated indices, which is not a bias that makes sense for categorical input
 #       spaces.
-
-
+import warnings
 from abc import ABC, abstractmethod
 from functools import wraps, partial
-from typing import Optional, TYPE_CHECKING, TypeVar, Union, Callable, Tuple
+from typing import Optional, TYPE_CHECKING, TypeVar, Union, Callable, Tuple, Dict, Hashable
 
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import Dense, Layer
 
 from cephalus.modules.interface import Sensor
-from cephalus.support import StandardizedTensorShape
+from cephalus.support import StandardizedTensorShape, size_from_shape
 
 if TYPE_CHECKING:
     from cephalus.kernel import StateKernel
@@ -42,7 +41,7 @@ class SimpleSensor(Sensor, ABC):
         raise NotImplementedError()
 
     def build(self) -> None:
-        self._mapping.build(input_shape=(None,) + self.raw_input_shape)
+        self._mapping.build(input_shape=(None, size_from_shape(self.raw_input_shape)))
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -55,7 +54,7 @@ class SimpleSensor(Sensor, ABC):
         raw_input = self.get_raw_input(environment, frame)
         if raw_input is None:
             return None
-        raw_input_tensor = tf.convert_to_tensor(raw_input, dtype=self._mapping.dtype)
+        raw_input_tensor = tf.cast(tf.convert_to_tensor(raw_input), self._mapping.dtype)
         flattened_input_tensor = tf.reshape(raw_input_tensor, (tf.size(raw_input_tensor),))
         return self._mapping(flattened_input_tensor[tf.newaxis, :])[0]
 
@@ -67,6 +66,7 @@ class SimpleSensor(Sensor, ABC):
 class SensorLambda(SimpleSensor):
 
     def __init__(self, raw_input_shape, f: SensorFunction):
+        super().__init__()
         self._raw_input_shape = raw_input_shape
         self.f = f
 
@@ -83,9 +83,56 @@ class SensorLambda(SimpleSensor):
         return self.f(environment, frame)
 
 
+# A map from functions to their lambda wrappers created by the @sensor decorator, to support reuse
+# of the same sensor mappings
+_SENSOR_MAP: Dict[Tuple[SensorFunction, Hashable], SensorLambda] = {}
+
+
+# TODO: Persistence can be implemented by providing a file path (or building one dynamically based
+#       on the fully qualified module/class path of the sensor function).
+# TODO: This won't work if we use the same method with different kernels. If kernel modules could
+#       support multiple kernels, it would resolve that issue, but create another one: We'll need
+#       a kernel registry, and the ability to mark them as single use or retire them. All of this
+#       is pointing to a new design element: Persistent, automatic registries for cephalus
+#       components. It would be best if this were designed up front in a systematic manner. Some
+#       careful thought needs to be put into precisely when it makes sense to reuse a component, and
+#       how to uniquely identify them.
 def sensor(raw_input_shape: StandardizedTensorShape,
-           f: SensorFunction = None) -> Union[Callable[[SensorFunction], SensorLambda],
-                                              SensorLambda]:
+           f: SensorFunction = None, *,
+           key: Hashable = None,
+           single_use: bool = None) -> Union[Callable[[SensorFunction], SensorLambda],
+                                             SensorLambda]:
+    """Decorator for creating sensors from functions.
+
+    Usage:
+        @sensor((5, 8))
+        def my_sensor(env, frame):
+            sensor_reading = np.random.uniform(0, 1, (5, 8))
+            return sensor_reading
+
+        kernel.add_module(my_sensor)
+    """
     if f is None:
-        return partial(sensor, raw_input_shape)
-    return wraps(f)(SensorLambda(raw_input_shape, f))
+        kwargs = {}
+        if key is not None:
+            kwargs.update(key=key)
+        if single_use is not None:
+            kwargs.update(single_use=single_use)
+        return partial(sensor, raw_input_shape, **kwargs)
+    if not single_use and (f, key) in _SENSOR_MAP:
+        sensor_obj = _SENSOR_MAP[f, key]
+        if sensor_obj.raw_input_shape != raw_input_shape:
+            warnings.warn("Sensor for %s (key=%r) redefined with new shape, %s." %
+                          (f, key, raw_input_shape))
+        else:
+            return sensor_obj
+    sensor_obj = wraps(f)(SensorLambda(raw_input_shape, f))
+    if not single_use:
+        _SENSOR_MAP[f, key] = sensor_obj
+    return sensor_obj
+
+
+def retire_sensor(sensor: SensorLambda, key: Hashable = None) -> None:
+    """Remove the lambda sensor created with the @sensor from the sensor cache."""
+    if (sensor.f, key) in _SENSOR_MAP:
+        del _SENSOR_MAP[sensor.f, key]

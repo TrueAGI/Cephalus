@@ -17,16 +17,19 @@ class ActionDecision:
     q_model: 'ProbabilisticModel'
     step: int
 
-    action: tf.Tensor = None
-    q_value_prediction: tf.Tensor = None
-    reward: Union[float, tf.Tensor] = None
-    q_value: tf.Tensor = None
-
-    # Bookkeeping fields, used by the action policies to store information they need to pass between
-    # methods for efficiency.
     action_distribution: tfd.Distribution = None
-    joint_q_value_distribution: tfd.Distribution = None
-    q_value_distribution: tfd.Distribution = None
+    selected_q_value_distribution: tfd.Distribution = None
+
+    selected_action: tf.Tensor = None
+    selected_q_value_prediction: tf.Tensor = None
+
+    exploit_action: tf.Tensor = None
+    exploit_q_value_prediction: tf.Tensor = None
+    exploit_confidence: tf.Tensor = None
+
+    reward: Union[float, tf.Tensor] = None
+    q_value_target: tf.Tensor = None
+    q_value_target_confidence: tf.Tensor = None
 
 
 class ActionPolicy(Modeled, ABC):
@@ -35,12 +38,13 @@ class ActionPolicy(Modeled, ABC):
     def choose_action(self, decision: ActionDecision) -> None:
         raise NotImplementedError()
 
-    @staticmethod
-    def predict_q_value(decision: ActionDecision) -> None:
-        decision.q_value_prediction = decision.q_value_distribution.mean()
-
     def get_loss(self, decision: ActionDecision) -> tf.Tensor:
-        return -decision.q_value_distribution.log_prob(decision.q_value)
+        loss = decision.q_model.distribution_loss(
+            decision.selected_q_value_distribution,
+            tf.stop_gradient(decision.q_value_target)
+        )
+        loss = tf.clip_by_norm(loss, 1.0)
+        return loss * tf.stop_gradient(decision.q_value_target_confidence)
 
 
 # TODO: Implement REINFORCE, Q Actor/Critic, AAC, PPO, etc., as well as the novel algorithms
@@ -63,9 +67,25 @@ class ContinuousActionPolicy(ActionPolicy, ABC):
 
     def choose_action(self, decision: ActionDecision) -> None:
         decision.action_distribution = self.policy_model(decision.state)
-        decision.action = decision.action_distribution.sample()
-        decision.q_value_distribution = decision.q_model([decision.state,
-                                                          tf.stop_gradient(decision.action)])
+
+        selected_action = decision.action_distribution.sample()
+
+        q_value_distribution = decision.q_model([
+            decision.state,
+            tf.stop_gradient(decision.selected_action)
+        ])
+
+        selected_mean = q_value_distribution.mean()
+        selected_variance = q_value_distribution.variance()
+
+        decision.selected_action = selected_action
+        decision.selected_q_value_prediction = selected_mean
+
+        decision.exploit_action = selected_action
+        decision.exploit_q_value_prediction = selected_mean
+        decision.exploit_confidence = 1.0 / (1.0 + selected_variance)
+
+        decision.selected_q_value_prediction = q_value_distribution
 
     def get_loss(self, decision: ActionDecision) -> tf.Tensor:
         return super().get_loss(decision) + self.get_policy_loss(decision)
@@ -83,10 +103,31 @@ class DiscreteActionPolicy(ActionPolicy):
         return ()
 
     def choose_action(self, decision: ActionDecision) -> None:
-        decision.joint_q_value_distribution = decision.q_model(decision.state[tf.newaxis, :])[0]
-        q_values = decision.joint_q_value_distribution.sample()
+        # NOTE: I was taking index 0 of the joint distribution here, to remove the batch axis that
+        # Keras requires, but I had to change it to remove the batch axis in the various places
+        # where it's used, below, instead. It turns out there's a bug in tensorflow_probability
+        # that causes an index error if you index iteratively instead of all at once. It's reported
+        # here: https://github.com/tensorflow/probability/issues/1487
+        joint_q_value_distribution = decision.q_model(decision.state[tf.newaxis, :])
+
+        q_value_predictions = joint_q_value_distribution.sample()[0]
+        best_action = tf.argmax(q_value_predictions)
         if self.exploration_policy is None or not self.exploration_policy(decision.step):
-            decision.action = tf.argmax(q_values)
+            selected_action = best_action
         else:
-            decision.action = tf.random.uniform((), 0, q_values.shape[-1], dtype=tf.int64)
-        decision.q_value_distribution = decision.joint_q_value_distribution[decision.action]
+            selected_action = tf.random.uniform((), 0, q_value_predictions.shape[-1],
+                                                dtype=tf.int64)
+
+        selected_mean = joint_q_value_distribution.mean()[0, selected_action]
+        exploit_mean = joint_q_value_distribution.mean()[0, best_action]
+        exploit_variance = joint_q_value_distribution.variance()[0, best_action]
+
+        decision.selected_action = selected_action
+        decision.selected_q_value_prediction = selected_mean
+
+        decision.exploit_action = best_action
+        decision.exploit_q_value_prediction = exploit_mean
+        decision.exploit_confidence = 1.0 / (1.0 + exploit_variance)
+
+        decision.selected_q_value_distribution = \
+            joint_q_value_distribution[0, decision.selected_action]

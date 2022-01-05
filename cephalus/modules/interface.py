@@ -28,6 +28,9 @@ class StateKernelModule(Modeled, Generic[Environment], ABC):
     _kernel: Optional['StateKernel'] = None
     _loss_scale: float = 1.0
 
+    def __init__(self, loss_scale: float = 1.0):
+        self._loss_scale = float(loss_scale)
+
     @abstractmethod
     def configure(self, kernel: 'StateKernel') -> None:
         """Configure the module to work with a configured state kernel, building any neural models

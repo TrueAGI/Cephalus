@@ -1,6 +1,6 @@
 """The state kernel is a configurable kernel for online neural learning of sequential state updates.
 This module defines the state kernel and the abstract interfaces for its modules."""
-import warnings
+
 from typing import Optional, Union, Iterable, Tuple, Set, TypeVar, \
     Generic, List
 
@@ -151,19 +151,6 @@ class StateKernel(Modeled, Generic[Environment]):
         return self._config.optimizer
 
     @property
-    def future_gradient_coefficient(self) -> float:
-        """The coefficient to multiply predicted gradients for future states that have been
-        propagated back to the current state. Acts as a future discount rate."""
-        return self._config.future_gradient_coefficient
-
-    @property
-    def stabilized_gradient(self) -> bool:
-        """Whether to divide the sum of the current true gradient and the discounted future gradient
-        by (1 + future_gradient_coefficient). If true, effectively normalizes their sum to the
-        natural range of the true gradient."""
-        return self._config.stabilized_gradient
-
-    @property
     def state_prediction_provider(self) -> Optional['StatePredictionProvider']:
         """The module which is designated as the state kernel's state prediction provider."""
         return self._state_prediction_provider
@@ -272,7 +259,6 @@ class StateKernel(Modeled, Generic[Environment]):
         assert previous_frame.current_state is not None
 
         losses: List[tf.Tensor] = []
-        total_scale = 0.0
         for module in self._modules:
             module_loss = module.get_loss(previous_frame, current_frame)
             if module_loss is not None and module.loss_scale > 0.0:
@@ -280,19 +266,17 @@ class StateKernel(Modeled, Generic[Environment]):
                 # noinspection PyTypeChecker
                 scaled_module_loss: tf.Tensor = module.loss_scale * module_loss
                 losses.append(scaled_module_loss)
-                total_scale += module.loss_scale
+
                 # TODO: Use logging. Also, provide a way for the user to capture loss curves over
                 #       time for each module and retrieve them easily. And modules should be named
                 #       (manually, or else automatically at config time with a reasonable default)
                 #       so we can identify them easily.
                 print("Loss for %s: %s" % (module.__class__.__name__, scaled_module_loss.numpy()))
 
-        assert total_scale > 0.0 or not losses
         if len(losses) == 1:
-            # noinspection PyTypeChecker
-            return losses[0] / total_scale
+            return losses[0]
         elif losses:
-            return tf.add_n(losses) / total_scale
+            return tf.add_n(losses)
         else:
             return None
 

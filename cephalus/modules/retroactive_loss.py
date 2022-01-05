@@ -18,6 +18,7 @@ import tensorflow as tf
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import clone_model
+from tensorflow.keras.optimizers import SGD
 
 from cephalus.modules.interface import RetroactiveLossProvider
 
@@ -45,12 +46,12 @@ class LossStateTD(RetroactiveLossProvider):
         # Originally this used a softplus activation, but there's no guarantee that loss is
         # positive.
         self._loss_model = Sequential(clone_model(kernel.config.model_template).layers[:-1] +
-                                      [Dense(1,)])
+                                      [Dense(1, activation='tanh')])
         # We use SGD irrespective of which optimizer the kernel is configured to use, because SGD
         # provides more stable estimates of the input gradients that other training methods. This
         # model's sole purpose is to provide input gradients to train the state model with; the
         # actual loss estimates it computes are useless in and of themselves.
-        self._loss_model.compile('sgd', 'mse')
+        self._loss_model.compile(SGD(0.1), 'mse')
 
     def build(self) -> None:
         self._loss_model.build(input_shape=(None, self.state_width))
@@ -62,6 +63,7 @@ class LossStateTD(RetroactiveLossProvider):
         assert previous_frame.attended_input_tensor is not None
         assert previous_frame.combined_loss is not None
         loss_target = previous_frame.combined_loss[tf.newaxis, tf.newaxis]
+        loss_target = tf.clip_by_value(loss_target, -1000000.0, 1000000.0)
         self._loss_model.fit(previous_frame.current_state[tf.newaxis, :], loss_target)
 
     def get_loss(self, previous_frame: 'StateFrame',

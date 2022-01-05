@@ -30,12 +30,3 @@ class StateKernelConfig:
 
     # The optimizer to be used for all the models.
     optimizer: Optimizer
-
-    # The coefficient to multiply predicted gradients for future states that have been propagated
-    # back to the current state. Acts as a future discount rate.
-    future_gradient_coefficient: float
-
-    # Whether to divide the sum of the current true gradient and the discounted future gradient by
-    # (1 + future_gradient_coefficient). If true, effectively normalizes their sum to the natural
-    # range of the true gradient.
-    stabilized_gradient: bool
