@@ -177,7 +177,7 @@ def test_single(steps: Optional[int] = 10):
     print("Done.")
 
 
-def test_multiple_streams(steps: Optional[int] = 1000, stream_count: int = 2):
+def test_multiple_streams(steps: Optional[int] = 10, stream_count: int = 2):
     """Test a single kernel running a single agent on multiple concurrent streams.
 
     NOTE: This is not a performance test. We don't care if the environment
