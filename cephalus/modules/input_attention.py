@@ -1,11 +1,11 @@
-from typing import Optional, TYPE_CHECKING, Tuple
+from typing import Optional, TYPE_CHECKING, Tuple, Union
 
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense, Attention
 from tensorflow.keras.models import clone_model
 
-from cephalus.modules.interface import InputAttentionProvider
+from cephalus.modules.interface import InputAttentionProvider, InputSample
 
 if TYPE_CHECKING:
     from cephalus.frame import StateFrame
@@ -27,6 +27,29 @@ class StandardInputAttentionProvider(InputAttentionProvider):
     _key_model: Model = None
     _value_model: Model = None
     _attention_layer: Attention = None
+    _default_input: tf.Variable = None
+    _default_sensor_embedding: tf.Variable = None
+
+    @property
+    def sensor_embedding_width(self) -> int:
+        return self.kernel.sensor_embedding_width
+
+    @property
+    def kv_input_width(self) -> int:
+        return self.state_width + self.sensor_embedding_width + self.input_width + 1
+
+    @property
+    def default_input(self) -> Union[tf.Tensor, tf.Variable]:
+        """The default input tensor or variable used by the state kernel when there are no
+        inputs."""
+        assert self._default_input is not None
+        return self._default_input
+
+    @property
+    def default_sensor_embedding(self) -> Union[tf.Tensor, tf.Variable]:
+        """The sensor embedding for the default input used when there are no inputs."""
+        assert self._default_sensor_embedding is not None
+        return self._default_sensor_embedding
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
@@ -40,34 +63,53 @@ class StandardInputAttentionProvider(InputAttentionProvider):
         )
         self._value_model = clone_model(self._key_model)
         self._attention_layer = Attention()
+        self._default_input = tf.Variable(tf.zeros(kernel.input_width, dtype=kernel.dtype))
+        self._default_sensor_embedding = tf.Variable(tf.zeros(kernel.sensor_embedding_width,
+                                                              dtype=kernel.dtype))
 
     def build(self) -> None:
         self._query_model.build(input_shape=(None, self.state_width))
-        self._key_model.build(input_shape=(None, self.state_width + self.input_width))
-        self._value_model.build(input_shape=(None, self.state_width + self.input_width))
+        self._key_model.build(input_shape=(None, self.kv_input_width))
+        self._value_model.build(input_shape=(None, self.kv_input_width))
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
         return tuple(
             self._query_model.trainable_weights +
             self._key_model.trainable_weights +
-            self._value_model.trainable_weights
+            self._value_model.trainable_weights +
+            [self._default_input, self._default_sensor_embedding]
         )
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
         return None  # No intrinsic loss.
 
+    def get_annotated_tensor(self, sample: 'InputSample', frame: 'StateFrame'):
+        age = frame.clock_ticks - sample.time_stamp
+        return tf.concat([
+            tf.convert_to_tensor([1.0 / (1.0 + age)], dtype=self.kernel.dtype),
+            sample.sensor_embedding,
+            sample.value
+        ], axis=-1)
+
     def attend_inputs(self, frame: 'StateFrame') -> None:
-        assert frame.input_tensors
+        assert frame.input_samples is not None
         assert frame.current_state is None
         assert frame.previous_state is not None
         assert frame.attended_input_tensor is None
 
+        input_tensors = []
+        for sample in frame.input_samples:
+            input_tensors.append(self.get_annotated_tensor(sample, frame))
+
+        if not input_tensors:
+            sample = InputSample('<DEFAULT>', self.default_sensor_embedding, self.default_input, 0)
+            input_tensors.append(self.get_annotated_tensor(sample, frame))
+
         query = self._query_model(frame.previous_state[tf.newaxis, :])[tf.newaxis, :, :]
 
-        input_tensors = tf.concat([input_tensor[tf.newaxis, :]
-                                   for input_tensor in frame.input_tensors],
+        input_tensors = tf.concat([input_tensor[tf.newaxis, :] for input_tensor in input_tensors],
                                   axis=0)
         previous_state = tf.repeat(frame.previous_state[tf.newaxis, :], input_tensors.shape[0],
                                    axis=0)

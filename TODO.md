@@ -17,6 +17,8 @@
   collecting the training targets from all the modules, but passing them back
   again when loss is computed during training.
 * Support multithreading explicitly. Thread "compatibility" is not enough.
+* Normalization of sensor inputs, either automatically with on-line statistics
+  or using user-provided ranges or mappings.
 * Do some experiments to see if it's a good idea to set the discount rate
   dynamically based on the prediction error of the q model. (And likewise,
   the loss scale for the TD state loss based on its prediction error.)

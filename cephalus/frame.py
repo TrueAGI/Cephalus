@@ -4,7 +4,7 @@ from typing import Optional, List, Union, Dict, Any, TYPE_CHECKING
 import tensorflow as tf
 
 if TYPE_CHECKING:
-    from cephalus.modules.interface import StateKernelModule
+    from cephalus.modules.interface import StateKernelModule, InputSample
 
 __all__ = [
     'StateFrame'
@@ -22,7 +22,9 @@ class StateFrame:
     previous_state: Union[tf.Tensor, tf.Variable]
     tape: Optional[tf.GradientTape]
 
-    input_tensors: List[tf.Tensor] = None
+    clock_ticks: int = 0
+
+    input_samples: List['InputSample'] = None
     attended_input_tensor: tf.Tensor = None
     current_state: Optional[tf.Tensor] = None
 

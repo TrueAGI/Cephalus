@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+import tensorflow as tf
 from tensorflow.keras import Model
 from tensorflow.keras.optimizers import Optimizer
 
@@ -17,9 +18,12 @@ class StateKernelConfig:
     # other shapes must transform their inputs from this shape.
     state_width: int
 
-    # The with of the input space. The input space is always 1-dimensional. Sensors which have
+    # The width of the input space. The input space is always 1-dimensional. Sensors which have
     # other shapes must transform their outputs to this shape.
     input_width: int
+
+    # The width of the sensor embedding space. The sensor embedding space is always 1-dimensional.
+    sensor_embedding_width: int
 
     # A model template with a structure suitable for predicting the next state. The model must
     # accept two inputs, one for previous state and one for current (combined) inputs, in that
@@ -30,3 +34,7 @@ class StateKernelConfig:
 
     # The optimizer to be used for all the models.
     optimizer: Optimizer
+
+    # TODO: Replace assumed data types with references to this throughout the code.
+    # The data type that will be used for models when they interface with the kernel.
+    dtype: tf.DType = tf.float32

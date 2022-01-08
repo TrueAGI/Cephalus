@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Union, Dict, Any, TYPE_CHECKING, TypeVar, Generic, Tuple
+from dataclasses import dataclass
+from typing import Optional, Union, Dict, Any, TYPE_CHECKING, TypeVar, Generic, Tuple, Iterable
 
 import tensorflow as tf
 
@@ -15,6 +16,7 @@ __all__ = [
     'StatePredictionProvider',
     'RetroactiveLossProvider',
     'InputAttentionProvider',
+    'InputSample',
     'Sensor',
 ]
 
@@ -79,6 +81,11 @@ class StateKernelModule(Modeled, Generic[Environment], ABC):
         """A coefficient applied to the module's loss to scale its effects relative to other
         state prediction losses."""
         self._loss_scale = value
+
+    @property
+    def dtype(self) -> tf.DType:
+        """The data type used to interface with the kernel."""
+        return self._kernel.dtype
 
     @property
     def state_width(self) -> int:
@@ -171,11 +178,27 @@ class InputAttentionProvider(StateKernelModule, ABC):
         raise NotImplementedError()
 
 
+@dataclass
+class InputSample:
+    sensor_id: str  # Useful for tracing/debugging
+    sensor_embedding: Union[tf.Tensor, tf.Variable]
+    value: tf.Tensor
+    time_stamp: int
+
+
+# TODO: Instead of Sensor.get_inputs() returning a raw tensor, return an object. The object should
+#       include information identifying the data source and sample age. This metadata should be used
+#       by the sensor attention module when compressing the data. The data source should be
+#       represented by a unique identifier, which the attention module should then map to a
+#       trainable embedding. The sample age should be represented by a zero-based counter, which the
+#       attention module should compress to an appropriate normalized range. Both should be fed
+#       alongside the actual sensor reading to the attention mechanism when determining the keys and
+#       values.
 class Sensor(StateKernelModule[Environment], ABC):
     """A state kernel module which provides inputs to the kernel. Inputs must have the shape
     (kernel.input_width,) to support input attention mechanisms."""
 
     @abstractmethod
-    def get_input(self, environment: 'Environment', frame: 'StateFrame') -> Optional[tf.Tensor]:
-        """Return an input tensor produced by this module."""
+    def get_inputs(self, environment: 'Environment', frame: 'StateFrame') -> Iterable[InputSample]:
+        """Return zero or more input samples produced by this module."""
         raise NotImplementedError()

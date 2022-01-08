@@ -11,7 +11,7 @@ from cephalus.config import StateKernelConfig
 from cephalus.frame import StateFrame
 from cephalus.modeled import Modeled
 from cephalus.modules.interface import StateKernelModule, StatePredictionProvider, \
-    RetroactiveLossProvider, Sensor, InputAttentionProvider
+    RetroactiveLossProvider, Sensor, InputAttentionProvider, InputSample
 
 __all__ = [
     'StateKernel'
@@ -39,8 +39,6 @@ class StateKernel(Modeled, Generic[Environment]):
     _config: Optional[StateKernelConfig] = None
     _initial_state: Union[tf.Tensor, tf.Variable] = None
     _initial_state_is_trainable: bool = False
-    _default_input: Union[tf.Tensor, tf.Variable] = None
-    _default_input_is_trainable: bool = False
     _modules: Set['StateKernelModule[Environment]']
     _input_attention_provider: 'InputAttentionProvider' = None
     _state_prediction_provider: 'StatePredictionProvider' = None
@@ -97,9 +95,6 @@ class StateKernel(Modeled, Generic[Environment]):
             self.add_modules(module)
         if self._initial_state is None:
             self.initial_state = tf.Variable(tf.zeros(config.state_width), name='initial_state')
-        if self._default_input is None:
-            # TODO: Make it possible for this to be a trainable weight, and do that as the default.
-            self.default_input = tf.zeros(config.input_width, name='default_input')
 
     def build(self):
         assert self._config is not None
@@ -132,6 +127,11 @@ class StateKernel(Modeled, Generic[Environment]):
         return self._config
 
     @property
+    def dtype(self) -> tf.DType:
+        """The data type used by the kernel."""
+        return self._config.dtype
+
+    @property
     def state_width(self) -> int:
         """The width of the state tensors used by this state kernel."""
         assert self._config is not None
@@ -140,6 +140,12 @@ class StateKernel(Modeled, Generic[Environment]):
     @property
     def input_width(self) -> int:
         """The width of the input tensors accepted by this state kernel."""
+        assert self._config is not None
+        return self._config.input_width
+
+    @property
+    def sensor_embedding_width(self) -> int:
+        """The width of the sensor embedding width accepted by this state kernel."""
         assert self._config is not None
         return self._config.input_width
 
@@ -210,37 +216,18 @@ class StateKernel(Modeled, Generic[Environment]):
         assert self._initial_state is not None
         return self._initial_state_is_trainable
 
-    @property
-    def default_input(self) -> Union[tf.Tensor, tf.Variable]:
-        """The default input tensor or variable used by the state kernel when there are no
-        inputs."""
-        assert self._default_input is not None
-        return self._default_input
-
-    @default_input.setter
-    def default_input(self, value: Union[tf.Tensor, tf.Variable]) -> None:
-        """The default input tensor or variable used by the state kernel when there are no
-        inputs."""
-        self._default_input = value
-        self._default_input_is_trainable = isinstance(value, tf.Variable)
-
-    @property
-    def default_input_is_trainable(self) -> bool:
-        """This property's value indicates whether the default input is a trainable variable -- as
-        opposed to a non-trainable tensor."""
-        assert self._default_input is not None
-        return self._default_input_is_trainable
-
     def recompute_trainable_weights(self):
         """Recompute the trainable weights after a configuration or module change."""
         assert self._config
         weights = []
         if self._initial_state_is_trainable:
+            assert self.initial_state.dtype == self.dtype
             weights.append(self.initial_state)
-        if self._default_input_is_trainable:
-            weights.append(self.default_input)
         for module in self._modules:
-            weights.extend(module.get_trainable_weights())
+            module_weights = module.get_trainable_weights()
+            for weight in module_weights:
+                assert weight.dtype == self.dtype, (module, weight.name)
+            weights.extend(module_weights)
         self._trainable_weights = tuple(weights)
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -307,6 +294,7 @@ class StateKernel(Modeled, Generic[Environment]):
         new_frame = StateFrame(
             previous_state=self.get_previous_state(previous_frame),
             tape=self.new_gradient_tape(),
+            clock_ticks=0 if previous_frame is None else 1 + previous_frame.clock_ticks
         )
         for module in self._modules:
             module_data = module.get_new_frame_data(new_frame, previous_frame)
@@ -318,22 +306,21 @@ class StateKernel(Modeled, Generic[Environment]):
         """Gather new input tensors from the environment. Record the input tensors in the frame."""
         assert self._config is not None
         assert frame.current_state is None
-        assert frame.input_tensors is None
-        input_tensors = [self.default_input]
+        assert frame.input_samples is None
+        samples: List[InputSample] = []
         for module in self._modules:
             if not isinstance(module, Sensor):
                 continue
-            input_tensor = module.get_input(environment, frame)
-            if input_tensor is not None:
-                assert input_tensor.shape == (self.input_width,)
-                input_tensors.append(input_tensor)
-        frame.input_tensors = input_tensors
+            for sample in module.get_inputs(environment, frame):
+                assert sample.value.shape == (self.input_width,)
+                samples.append(sample)
+        frame.input_samples = samples
 
     def predict_state(self, frame: StateFrame) -> None:
         """Predict the current state from the previous state and the current input. Record the
         prediction in the frame."""
         assert self._config is not None
-        assert frame.input_tensors is not None
+        assert frame.input_samples is not None
         assert frame.current_state is None
         assert self._state_prediction_provider is not None
         new_state = self._state_prediction_provider.predict_state(frame)
@@ -350,6 +337,7 @@ class StateKernel(Modeled, Generic[Environment]):
 
         try:
             loss = self.get_loss(previous_frame, current_frame)
+            assert loss.dtype == self.dtype
             if loss is None:
                 loss = tf.zeros(())
         finally:

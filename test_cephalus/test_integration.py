@@ -14,6 +14,7 @@ from cephalus.modules.autoencoder import StateAutoencoder
 from cephalus.modules.input_prediction import InputPrediction
 from cephalus.modules.sensing import sensor
 from cephalus.q.action_policies import DiscreteActionPolicy
+from cephalus.q.doubt_estimator import AutoencoderDoubtEstimator
 from cephalus.q.epsilon_greedy import EpsilonGreedy
 from cephalus.q.probabilistic_models import DeterministicModel
 from cephalus.q.tasks import RewardDrivenTask
@@ -34,12 +35,16 @@ class GymEnvSolver:
         self.last_action = env.action_space.sample()
         self.reward = 0.0
 
+        # TODO: Make these act like bound methods.
+        self.sense_observation = sensor(env.observation_space.shape, GymEnvSolver.sense_observation)
+        self.sense_action = sensor(env.action_space.shape, GymEnvSolver.sense_action)
+
         self.modules = [
             # The agent can sense the environment directly.
-            sensor(env.observation_space.shape, GymEnvSolver.sense_observation),
+            self.sense_observation,
 
             # The agent can sense the action it last took.
-            sensor(env.action_space.shape, GymEnvSolver.sense_action),
+            self.sense_action,
 
             # The agent can sense the reward it last received.
             GymEnvSolver.sense_reward,
@@ -85,8 +90,9 @@ class GymEnvSolver:
 
 
 def build_kernel() -> StateKernel:
-    state_width = 10
-    input_width = 10
+    state_width = 4
+    input_width = 4
+    sensor_embedding_width = 4
 
     print("Building state model.")
     state_model = Sequential(
@@ -102,13 +108,13 @@ def build_kernel() -> StateKernel:
         StateKernelConfig(
             state_width=state_width,
             input_width=input_width,
+            sensor_embedding_width=sensor_embedding_width,
             model_template=state_model,
             optimizer=SGD(),
         )
     )
     kernel.add_modules(StateAutoencoder())
     kernel.add_modules(InputPrediction())
-    # kernel.add_modules(LossStateTD(loss_scale=0.99))
 
     return kernel
 
@@ -129,22 +135,17 @@ def build_cartpole_agent(state_width: int) -> TDAgent:
     q_model = Model(state_input, q_mean)
     q_dist = DeterministicModel(q_model)
 
-    # q_stddev = Dense(2, activation='softplus')(shared)
-    # q_model = Model(state_input, [q_mean, q_stddev])
-    # q_dist = ProbabilisticModel(q_model, tfd.Normal)
-
     print("Creating action policy.")
-    action_policy = DiscreteActionPolicy(
-        exploration_policy=EpsilonGreedy()
-    )
+    action_policy = DiscreteActionPolicy(exploration_policy=EpsilonGreedy())
+
+    doubt_model = Sequential([
+        Dense(state_width * 2, activation='tanh'),
+        Dense(state_width)
+    ])
+    doubt_estimator = AutoencoderDoubtEstimator(doubt_model)
 
     print("Creating agent.")
-    agent = TDAgent(
-        q_dist,
-        action_policy,
-        .99,
-        stabilize=True
-    )
+    agent = TDAgent(q_dist, action_policy, .99, stabilize=True, doubt_estimator=doubt_estimator)
 
     return agent
 
