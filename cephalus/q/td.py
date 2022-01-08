@@ -7,6 +7,7 @@ from cephalus.q.action_policies import ActionPolicy, ActionDecision
 
 if TYPE_CHECKING:
     from cephalus.q.probabilistic_models import ProbabilisticModel
+    from cephalus.q.doubt_estimator import DoubtEstimator
 
 
 class TDAgent(Modeled):
@@ -17,24 +18,31 @@ class TDAgent(Modeled):
 
     def __init__(self, q_model: 'ProbabilisticModel', action_policy: ActionPolicy,
                  discount: Union[float, Callable[[float, float], float]],
-                 stabilize: bool = True):
-        self._q_model = q_model
+                 stabilize: bool = True,
+                 doubt_estimator: 'DoubtEstimator' = None):
+        self._q_model: 'ProbabilisticModel' = q_model
         self._action_policy = action_policy
-        self.discount = discount
-        self.stabilize = stabilize
-        self._previous_decision = None
-        self._current_decision = None
+        self.discount: float = discount
+        self.stabilize: bool = stabilize
+        self._doubt_estimator: 'DoubtEstimator' = doubt_estimator
+        self._previous_decision: Optional[ActionDecision] = None
+        self._current_decision: Optional[ActionDecision] = None
 
     @property
     def q_model(self) -> 'ProbabilisticModel':
         return self._q_model
 
     @property
+    def doubt_estimator(self) -> Optional['DoubtEstimator']:
+        return self._doubt_estimator
+
+    @property
     def action_policy(self) -> ActionPolicy:
         return self._action_policy
 
     def clone(self) -> 'TDAgent':
-        return type(self)(self._q_model, self._action_policy, self.discount, self.stabilize)
+        return type(self)(self._q_model, self._action_policy, self.discount, self.stabilize,
+                          self._doubt_estimator)
 
     def get_discount(self) -> float:
         if callable(self.discount):
@@ -60,7 +68,6 @@ class TDAgent(Modeled):
         if self._current_decision:
             assert self._current_decision.reward is None
             prediction = self._current_decision.exploit_q_value_prediction
-            prediction_confidence = self._current_decision.exploit_confidence
             discount = self.get_discount()
 
             # Sometimes the model can generalize poorly, resulting in values that are outside
@@ -73,9 +80,9 @@ class TDAgent(Modeled):
                 previous_q_value = ((self._previous_decision.reward + discount * prediction) /
                                     (1.0 + discount))
             else:
+                # noinspection PyTypeChecker
                 previous_q_value = self._previous_decision.reward + discount * prediction
         else:
-            prediction_confidence = 1.0
             if self.stabilize:
                 discount = self.get_discount()
                 previous_q_value = self._previous_decision.reward / (1.0 + discount)
@@ -83,20 +90,40 @@ class TDAgent(Modeled):
                 previous_q_value = self._previous_decision.reward
 
         self._previous_decision.q_value_target = previous_q_value
-        self._previous_decision.q_value_target_confidence = prediction_confidence
 
     def _close_previous_decision(self) -> Optional[tf.Tensor]:
         if self._previous_decision:
             # TODO: Use logging.
             print("Previous step's predicted Q-value for task TDAgent:",
                   self._previous_decision.selected_q_value_prediction.numpy())
+            # noinspection PyTypeChecker
             print("Previous step's target Q-value for task TDAgent:",
                   float(self._previous_decision.q_value_target))
-            loss = self._action_policy.get_loss(self._previous_decision)
+            policy_loss = self._action_policy.get_loss(self._previous_decision)
+            if self._current_decision:
+                current_doubt = self._current_decision.doubt
+            else:
+                current_doubt = 0.0
+            # noinspection PyTypeChecker
+            loss = policy_loss * 2.0 * (self._previous_decision.doubt /
+                                        (self._previous_decision.doubt + current_doubt))
         else:
+            policy_loss = None
             loss = None
         self._previous_decision = self._current_decision
         self._current_decision = None
+        if self._doubt_estimator:
+            if policy_loss is None:
+                policy_loss = 0.0
+            if self._previous_decision:
+                doubt_loss = self._doubt_estimator.get_loss(self._previous_decision,
+                                                            float(policy_loss))
+            else:
+                doubt_loss = None
+            if loss is None:
+                loss = doubt_loss
+            elif doubt_loss is not None:
+                loss += doubt_loss
         return loss
 
     def reset(self) -> Optional[tf.Tensor]:
@@ -128,6 +155,8 @@ class TDAgent(Modeled):
 
         step = self._previous_decision.step + 1 if self._previous_decision else 0
         decision = ActionDecision(state_input, self.q_model, step)
+        if self._doubt_estimator:
+            decision.doubt = self._doubt_estimator.get_doubt(decision)
         self.action_policy.choose_action(decision)
         self._current_decision = decision
 

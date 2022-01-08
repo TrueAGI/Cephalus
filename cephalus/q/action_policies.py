@@ -17,6 +17,8 @@ class ActionDecision:
     q_model: 'ProbabilisticModel'
     step: int
 
+    doubt: float = 0.0
+
     action_distribution: tfd.Distribution = None
     selected_q_value_distribution: tfd.Distribution = None
 
@@ -25,11 +27,9 @@ class ActionDecision:
 
     exploit_action: tf.Tensor = None
     exploit_q_value_prediction: tf.Tensor = None
-    exploit_confidence: tf.Tensor = None
 
     reward: Union[float, tf.Tensor] = None
     q_value_target: tf.Tensor = None
-    q_value_target_confidence: tf.Tensor = None
 
 
 class ActionPolicy(Modeled, ABC):
@@ -43,8 +43,7 @@ class ActionPolicy(Modeled, ABC):
             decision.selected_q_value_distribution,
             tf.stop_gradient(decision.q_value_target)
         )
-        loss = tf.clip_by_norm(loss, 1.0)
-        return loss * tf.stop_gradient(decision.q_value_target_confidence)
+        return tf.clip_by_norm(loss, 1.0)
 
 
 # TODO: Implement REINFORCE, Q Actor/Critic, AAC, PPO, etc., as well as the novel algorithms
@@ -76,14 +75,12 @@ class ContinuousActionPolicy(ActionPolicy, ABC):
         ])
 
         selected_mean = q_value_distribution.mean()
-        selected_variance = q_value_distribution.variance()
 
         decision.selected_action = selected_action
         decision.selected_q_value_prediction = selected_mean
 
         decision.exploit_action = selected_action
         decision.exploit_q_value_prediction = selected_mean
-        decision.exploit_confidence = 1.0 / (1.0 + selected_variance)
 
         decision.selected_q_value_prediction = q_value_distribution
 
@@ -120,14 +117,12 @@ class DiscreteActionPolicy(ActionPolicy):
 
         selected_mean = joint_q_value_distribution.mean()[0, selected_action]
         exploit_mean = joint_q_value_distribution.mean()[0, best_action]
-        exploit_variance = joint_q_value_distribution.variance()[0, best_action]
 
         decision.selected_action = selected_action
         decision.selected_q_value_prediction = selected_mean
 
         decision.exploit_action = best_action
         decision.exploit_q_value_prediction = exploit_mean
-        decision.exploit_confidence = 1.0 / (1.0 + exploit_variance)
 
         decision.selected_q_value_distribution = \
             joint_q_value_distribution[0, decision.selected_action]
