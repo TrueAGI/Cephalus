@@ -34,11 +34,14 @@ class ActionDecision:
 
 class ActionPolicy(Modeled):
 
+    _get_loss: Callable = None
+
     @abstractmethod
     def choose_action(self, decision: ActionDecision) -> None:
         raise NotImplementedError()
 
     def get_loss(self, decision: ActionDecision) -> tf.Tensor:
+        # TODO: Refactor so this can be compiled.
         loss = decision.q_model.distribution_loss(
             decision.selected_q_value_distribution,
             tf.stop_gradient(decision.q_value_target)

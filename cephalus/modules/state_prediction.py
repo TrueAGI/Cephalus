@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING, Tuple
+from typing import Optional, TYPE_CHECKING, Tuple, Callable
 
 import tensorflow as tf
 from tensorflow.keras import Model
@@ -23,6 +23,7 @@ class StandardStatePredictionProvider(StatePredictionProvider):
     directly from the configuration's model template without modification."""
 
     _state_model: Model = None
+    _predict_state: Callable = None
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
@@ -30,6 +31,14 @@ class StandardStatePredictionProvider(StatePredictionProvider):
 
     def build(self) -> None:
         self._state_model.build(input_shape=(None, self.state_width + self.input_width))
+
+        @tf.function
+        def predict_state(current_state, current_attended_input):
+            sm_in = tf.concat([current_state, current_attended_input], axis=-1)
+            return self._state_model(sm_in[tf.newaxis, :])[0]
+
+        self._predict_state = predict_state
+
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -40,8 +49,7 @@ class StandardStatePredictionProvider(StatePredictionProvider):
         return None  # No intrinsic loss.
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
-        sm_in = tf.concat([frame.previous_state, frame.attended_input_tensor], axis=-1)
-        return self._state_model(sm_in[tf.newaxis, :])[0]
+        return self._predict_state(frame.previous_state, frame.attended_input_tensor)
 
 
 class NullStatePredictionProvider(StatePredictionProvider):
@@ -72,12 +80,20 @@ class UntrainedStatePredictionProvider(StatePredictionProvider):
     want to use in production."""
 
     _state_model: Model = None
+    _predict_state: Callable = None
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
         self._state_model = clone_model(kernel.config.model_template)
 
     def build(self) -> None:
+        @tf.function
+        def predict_state(current_state, current_attended_input):
+            sm_in = tf.concat([current_state, current_attended_input], axis=-1)
+            return self._state_model(sm_in[tf.newaxis, :])[0]
+
+        self._predict_state = predict_state
+
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -88,5 +104,4 @@ class UntrainedStatePredictionProvider(StatePredictionProvider):
         return None
 
     def predict_state(self, frame: 'StateFrame') -> Optional[tf.Tensor]:
-        sm_in = tf.concat([frame.previous_state, frame.attended_input_tensor], axis=-1)
-        return self._state_model(sm_in[tf.newaxis, :])[0]
+        return self._predict_state(frame.previous_state, frame.attended_input_tensor)

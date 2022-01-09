@@ -1,4 +1,4 @@
-from typing import Optional, TYPE_CHECKING, Tuple, Union
+from typing import Optional, TYPE_CHECKING, Tuple, Union, Callable
 
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
@@ -29,6 +29,7 @@ class StandardInputAttentionProvider(InputAttentionProvider):
     _attention_layer: Attention = None
     _default_input: tf.Variable = None
     _default_sensor_embedding: tf.Variable = None
+    _input_attention_function: Callable = None
 
     @property
     def sensor_embedding_width(self) -> int:
@@ -71,6 +72,36 @@ class StandardInputAttentionProvider(InputAttentionProvider):
         self._query_model.build(input_shape=(None, self.state_width))
         self._key_model.build(input_shape=(None, self.kv_input_width))
         self._value_model.build(input_shape=(None, self.kv_input_width))
+
+        @tf.function
+        def input_attention_function(current_state, input_tensors):
+            query = self._query_model(current_state[tf.newaxis, :])[tf.newaxis, :, :]
+
+            current_state_repeated = tf.repeat(current_state[tf.newaxis, :],
+                                               tf.shape(input_tensors)[0],
+                                               axis=0)
+            kv_in = tf.concat([current_state_repeated, input_tensors], axis=-1)
+            keys = self._key_model(kv_in)[tf.newaxis, :, :]
+            values = self._value_model(kv_in)[tf.newaxis, :, :]
+
+            # query.shape: (batch_size, query_count, channels)
+            # keys.shape: (batch_size, value_count, channels)
+            # values.shape: (batch_size, value_count, channels)
+            tf.assert_equal(tf.shape(query), [1, 1, self.input_width])
+            tf.assert_equal(tf.shape(keys), [1, len(input_tensors), self.input_width])
+            tf.assert_equal(tf.shape(values), [1, len(input_tensors), self.input_width])
+
+            # attended_values.shape == (batch_size, query_count, channels)
+            attended_values = self._attention_layer([query, values, keys])
+            tf.assert_equal(tf.shape(attended_values), [1, 1, self.input_width])
+
+            attended_input = attended_values[0, 0, :]
+            tf.assert_equal(tf.shape(attended_input), [self.input_width])
+
+            return attended_input
+
+        self._input_attention_function = input_attention_function
+
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -107,28 +138,9 @@ class StandardInputAttentionProvider(InputAttentionProvider):
             sample = InputSample('<DEFAULT>', self.default_sensor_embedding, self.default_input, 0)
             input_tensors.append(self.get_annotated_tensor(sample, frame))
 
-        query = self._query_model(frame.previous_state[tf.newaxis, :])[tf.newaxis, :, :]
-
         input_tensors = tf.concat([input_tensor[tf.newaxis, :] for input_tensor in input_tensors],
                                   axis=0)
-        previous_state = tf.repeat(frame.previous_state[tf.newaxis, :], input_tensors.shape[0],
-                                   axis=0)
-        kv_in = tf.concat([previous_state, input_tensors], axis=-1)
-        keys = self._key_model(kv_in)[tf.newaxis, :, :]
-        values = self._value_model(kv_in)[tf.newaxis, :, :]
 
-        # query.shape: (batch_size, query_count, channels)
-        # keys.shape: (batch_size, value_count, channels)
-        # values.shape: (batch_size, value_count, channels)
-        assert query.shape == (1, 1, self.input_width)
-        assert keys.shape == (1, len(input_tensors), self.input_width)
-        assert values.shape == (1, len(input_tensors), self.input_width)
-
-        # attended_values.shape == (batch_size, query_count, channels)
-        attended_values = self._attention_layer([query, values, keys])
-        assert attended_values.shape == (1, 1, self.input_width)
-
-        attended_input = attended_values[0, 0, :]
-        assert attended_input.shape == (self.input_width,)
+        attended_input = self._input_attention_function(frame.previous_state, input_tensors)
 
         frame.attended_input_tensor = attended_input

@@ -71,6 +71,8 @@ class TDAgent(StateKernelModule):
         if isinstance(self._doubt_estimator, Modeled):
             self._doubt_estimator.build()
 
+        super().build()
+
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
         result = self._q_model.get_trainable_weights() + self._action_policy.get_trainable_weights()
         if isinstance(self._doubt_estimator, StateKernelModule):
@@ -93,16 +95,17 @@ class TDAgent(StateKernelModule):
 
         if self._current_decision:
             assert self._current_decision.reward is None
-            prediction = self._current_decision.exploit_q_value_prediction
+            # noinspection PyTypeChecker
+            prediction = float(self._current_decision.exploit_q_value_prediction)
             discount = self.get_discount()
 
-            # Sometimes the model can generalize poorly, resulting in values that are outside
-            # the bounds of what is actually reasonable.
             if self.stabilize:
+                # Sometimes the model can generalize poorly, resulting in predicted values that are
+                # outside the bounds of what is actually reasonable.
                 if self.min_observable_reward is not None:
-                    prediction = tf.maximum(prediction, self.min_observable_reward)
+                    prediction = max(prediction, self.min_observable_reward)
                 if self.max_observable_reward is not None:
-                    prediction = tf.minimum(prediction, self.max_observable_reward)
+                    prediction = min(prediction, self.max_observable_reward)
                 previous_q_value = ((self._previous_decision.reward + discount * prediction) /
                                     (1.0 + discount))
             else:

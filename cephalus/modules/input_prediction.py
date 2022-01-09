@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 import tensorflow as tf
 from tensorflow.keras import Sequential
@@ -18,6 +18,7 @@ class InputPrediction(StateKernelModule):
     state predictions."""
 
     _model = None
+    _loss_function: Callable = None
 
     def configure(self, kernel: StateKernel) -> None:
         super().configure(kernel)
@@ -28,6 +29,15 @@ class InputPrediction(StateKernelModule):
 
     def build(self) -> None:
         self._model.build(input_shape=(None, self.state_width))
+
+        @tf.function
+        def loss_function(state, attended_inputs):
+            prediction = self._model(state[tf.newaxis, :])
+            target = tf.stop_gradient(attended_inputs)[tf.newaxis, :]
+            return 0.5 * tf.reduce_mean(tf.square(target - prediction))
+
+        self._loss_function = loss_function
+
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -35,6 +45,5 @@ class InputPrediction(StateKernelModule):
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
-        prediction = self._model(previous_frame.current_state[tf.newaxis, :])
-        target = tf.stop_gradient(current_frame.attended_input_tensor[tf.newaxis, :])
-        return tf.reduce_sum(tf.square(target - prediction))
+        return self._loss_function(previous_frame.current_state,
+                                   current_frame.attended_input_tensor)

@@ -32,6 +32,7 @@ SensorFunction = Callable[['Environment', 'StateFrame'], Union[float, np.ndarray
 
 class SimpleSensor(Sensor):
     _mapping: Layer = None
+    _transform_input: Callable = None
 
     def __init__(self, sensor_id: str, raw_input_shape: RawTensorShape, *,
                  loss_scale: float = None, name: str = None):
@@ -59,6 +60,14 @@ class SimpleSensor(Sensor):
 
     def build(self) -> None:
         self._mapping.build(input_shape=(None, size_from_shape(self.raw_input_shape)))
+
+        @tf.function
+        def transform_input(raw_input):
+            shaped = tf.reshape(raw_input, [1, tf.size(raw_input)])
+            return self._mapping(shaped)[0]
+
+        self._transform_input = transform_input
+
         super().build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
@@ -73,9 +82,8 @@ class SimpleSensor(Sensor):
         raw_input = self.get_raw_input(environment, frame)
         if raw_input is None:
             return
-        raw_input_tensor = tf.cast(tf.convert_to_tensor(raw_input), self._mapping.dtype)
-        flattened_input_tensor = tf.reshape(raw_input_tensor, (tf.size(raw_input_tensor),))
-        value = self._mapping(flattened_input_tensor[tf.newaxis, :])[0]
+        raw_input = tf.cast(tf.convert_to_tensor(raw_input), self.dtype)
+        value = self._transform_input(raw_input)
         yield InputSample(self.sensor_id, self.sensor_embedding, value, frame.clock_ticks)
 
     def get_loss(self, previous_frame: 'StateFrame',

@@ -11,7 +11,9 @@ from cephalus.modeled import Modeled
 
 class ProbabilisticModelBase(Modeled):
 
-    def __init__(self, optimizer: Union[str, optimizers.Optimizer] = None, *, name: str = None):
+    def __init__(self, dtype: tf.DType, optimizer: Union[str, optimizers.Optimizer] = None, *,
+                 name: str = None):
+        self.dtype = dtype
         self.optimizer = optimizers.get(optimizer) if optimizer else None
         super().__init__(name=name)
 
@@ -69,7 +71,8 @@ class ProbabilisticModel(ProbabilisticModelBase):
                  name: str = None):
         self.parameter_model = parameter_model
         self.distribution_type = distribution_type
-        super().__init__(getattr(parameter_model, 'optimizer', None), name=name)
+        super().__init__(self.parameter_model.dtype, getattr(parameter_model, 'optimizer', None),
+                         name=name)
 
     @property
     def input_shape(self):

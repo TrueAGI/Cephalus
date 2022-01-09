@@ -7,13 +7,14 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense, Input, Lambda
-from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.optimizers import SGD, Adam
 
 from cephalus.config import StateKernelConfig
 from cephalus.frame import StateFrame
 from cephalus.kernel import StateKernel
 from cephalus.modules.autoencoder import StateAutoencoder
 from cephalus.modules.input_prediction import InputPrediction
+from cephalus.modules.retroactive_loss import DecoderStateTD
 from cephalus.modules.sensing import sensor
 from cephalus.q.action_policies import DiscreteActionPolicy
 from cephalus.q.doubt_estimator import AutoencoderDoubtEstimator
@@ -117,11 +118,14 @@ def build_kernel() -> StateKernel:
             input_width=input_width,
             sensor_embedding_width=sensor_embedding_width,
             model_template=state_model,
+            # Using adam seems to destabilize the q estimates too much. Maybe it would work with a
+            # lower learning rate?
             optimizer=SGD(),
         )
     )
     kernel.add_modules(StateAutoencoder())
     kernel.add_modules(InputPrediction())
+    kernel.add_modules(DecoderStateTD(loss_scale=0.99))
 
     return kernel
 
@@ -139,6 +143,7 @@ def build_cartpole_agent(state_width: int) -> TDAgent:
     q_mean = Lambda(lambda x: tf.repeat(x[0], 2, axis=-1) + x[1] - tf.reduce_max(x[1]))(
         [state_value, relative_action_value]
     )
+    # q_mean = Dense(2)(shared)
     q_model = Model(state_input, q_mean)
     q_dist = DeterministicModel(q_model)
 
@@ -152,7 +157,7 @@ def build_cartpole_agent(state_width: int) -> TDAgent:
     doubt_estimator = AutoencoderDoubtEstimator(doubt_model)
 
     print("Creating agent.")
-    agent = TDAgent(q_dist, action_policy, .99, stabilize=True, doubt_estimator=doubt_estimator)
+    agent = TDAgent(q_dist, action_policy, .99, stabilize=True) # , doubt_estimator=doubt_estimator)
 
     return agent
 

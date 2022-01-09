@@ -12,19 +12,37 @@
 #       tests to compare their performance.
 
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Callable
 
 import tensorflow as tf
 from tensorflow.keras import Model, Sequential
 from tensorflow.keras.layers import Dense
+from tensorflow.keras.losses import MSE
 from tensorflow.keras.models import clone_model
 from tensorflow.keras.optimizers import SGD
 
 from cephalus.modules.interface import RetroactiveLossProvider
+from cephalus.support import OnlineStats
 
 if TYPE_CHECKING:
     from cephalus.frame import StateFrame
     from cephalus.kernel import StateKernel
+
+
+def compiled_fit_function(model: Model) -> Callable[[tf.Tensor, tf.Tensor], None]:
+    """Compile a model's 'fit' function to squeeze a little extra performance out.
+    The input is assumed to be a single tensor."""
+
+    @tf.function
+    def fit(inputs: tf.Tensor, target: tf.Tensor) -> None:
+        with tf.GradientTape() as tape:
+            prediction = model(inputs)
+            loss = model.compiled_loss(target, prediction)
+        gradients = tape.gradient(loss, model.trainable_weights)
+        model.optimizer.apply_gradients(zip(gradients, model.trainable_weights))
+
+    # noinspection PyTypeChecker
+    return fit
 
 
 # NOTE: This class reimplements the method defined in rig.methods.backpropagation in the
@@ -40,6 +58,7 @@ class LossStateTD(RetroactiveLossProvider):
     # NOTE: The discount rate is controlled by the generic module parameter, 'loss_scale'.
 
     _loss_model: Model = None
+    _train_retroactive_loss_function: Callable = None
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
@@ -55,6 +74,18 @@ class LossStateTD(RetroactiveLossProvider):
 
     def build(self) -> None:
         self._loss_model.build(input_shape=(None, self.state_width))
+
+        fit_loss_model = compiled_fit_function(self._loss_model)
+
+        @tf.function
+        def train_retroactive_loss(state, previous_loss):
+            target = tf.clip_by_value(tf.stop_gradient(previous_loss),
+                                      -1000000.0,
+                                      1000000.0)[tf.newaxis, tf.newaxis]
+            fit_loss_model(tf.stop_gradient(state)[tf.newaxis, :], target)
+
+        self._train_retroactive_loss_function = train_retroactive_loss
+
         super().build()
 
     def train_retroactive_loss(self, previous_frame: 'StateFrame',
@@ -62,9 +93,8 @@ class LossStateTD(RetroactiveLossProvider):
         assert previous_frame.current_state is not None
         assert previous_frame.attended_input_tensor is not None
         assert previous_frame.combined_loss is not None
-        loss_target = previous_frame.combined_loss[tf.newaxis, tf.newaxis]
-        loss_target = tf.clip_by_value(loss_target, -1000000.0, 1000000.0)
-        self._loss_model.fit(previous_frame.current_state[tf.newaxis, :], loss_target)
+        self._train_retroactive_loss_function(previous_frame.current_state,
+                                              previous_frame.combined_loss)
 
     def get_loss(self, previous_frame: 'StateFrame',
                  current_frame: 'StateFrame') -> Optional[tf.Tensor]:
@@ -104,8 +134,7 @@ class TargetStateTD(RetroactiveLossProvider):
         previous_state_target = self.compute_previous_state_target(previous_frame, current_frame)
 
         # Convert the target to a loss.
-        loss = tf.reduce_mean(0.5 * tf.square(tf.stop_gradient(previous_state_target) -
-                                              previous_frame.current_state))
+        loss = MSE(tf.stop_gradient(previous_state_target), previous_frame.current_state)
 
         # Return the loss.
         return loss
@@ -176,7 +205,94 @@ class GradientStateTD(RetroactiveLossProvider):
         target = tf.stop_gradient(previous_frame.current_state - gradient)
 
         # Convert the target to a loss.
-        loss = tf.reduce_sum(0.5 * tf.square(target - previous_frame.current_state))
+        loss = MSE(target, previous_frame.current_state)
 
         # Return the loss.
         return loss
+
+
+class DecoderStateTD(TargetStateTD):
+    # TODO: This description is inaccurate. Either fix the docs to match the code, or fix the code
+    #       to match the docs.
+    """Decoder Target TD works by using a model to predict the previous state, conditioned on the
+    previous input and the current prediction loss, and then feeding a slightly lower prediction
+    loss to the model to generate a training target for the state.
+
+    Training:
+        state_target_model(previous_input, current_loss) => previous_state
+    Prediction:
+        state_target_model(previous_input, desired_current_loss) => previous_state_target
+        previous_loss += MSE(previous_state_target, previous_state)
+    """
+
+    _state_target_model: Model = None
+    _loss_model: Model = None
+    _train_retroactive_loss: Callable = None
+    _compute_previous_state_target: Callable = None
+
+    min_loss_target_adjustment = 0.000001
+    loss_target_adjustment_ratio = 0.1  # Fraction of variance
+
+    def __init__(self, *, loss_scale: float = None, name: str = None):
+        self.loss_stats = OnlineStats()
+        super().__init__(loss_scale=loss_scale, name=name)
+
+    def configure(self, kernel: 'StateKernel') -> None:
+        super().configure(kernel)
+        self._state_target_model = clone_model(kernel.config.model_template)
+        self._state_target_model.compile(kernel.optimizer, 'mse')
+        self._loss_model = Sequential(clone_model(kernel.config.model_template).layers[:-1] +
+                                      [Dense(1, activation='tanh')])
+        self._loss_model.compile(kernel.optimizer, 'mse')
+
+    def build(self) -> None:
+        self._state_target_model.build(input_shape=(None, self.state_width + 1))
+        self._loss_model.build(input_shape=(None, self.state_width))
+
+        fit_loss_model = compiled_fit_function(self._loss_model)
+        fit_state_target_model = compiled_fit_function(self._state_target_model)
+
+        @tf.function
+        def train_retroactive_loss(current_state, next_state, previous_loss):
+            loss_target = tf.clip_by_value(tf.stop_gradient(previous_loss),
+                                           -1000000.0,
+                                           1000000.0)[tf.newaxis, tf.newaxis]
+            protected_current_state = tf.stop_gradient(current_state)[tf.newaxis, :]
+            protected_next_state = tf.stop_gradient(next_state)[tf.newaxis, :]
+
+            fit_loss_model(protected_current_state, loss_target)
+
+            stm_in = tf.concat([protected_next_state, loss_target], axis=-1)
+            fit_state_target_model(stm_in, protected_current_state)
+
+        @tf.function
+        def compute_previous_state_target(current_state, scale, adjustment_ratio, min_adjustment):
+            protected_current_state = tf.stop_gradient(current_state)[tf.newaxis, :]
+            predicted_loss = tf.stop_gradient(self._loss_model(protected_current_state))
+            adjustment = tf.maximum(scale * adjustment_ratio, min_adjustment)
+            desired_loss = predicted_loss - adjustment[tf.newaxis, tf.newaxis]
+            stm_in = tf.concat([protected_current_state, desired_loss], axis=-1)
+            return self._state_target_model(stm_in)[0, :]
+
+        self._train_retroactive_loss = train_retroactive_loss
+        self._compute_previous_state_target = compute_previous_state_target
+
+        super().build()
+
+    def train_retroactive_loss(self, previous_frame: 'StateFrame',
+                               current_frame: 'StateFrame') -> None:
+        assert previous_frame.current_state is not None
+        assert previous_frame.attended_input_tensor is not None
+        assert previous_frame.combined_loss is not None
+        self._train_retroactive_loss(previous_frame.current_state, current_frame.current_state,
+                                     previous_frame.combined_loss)
+        # noinspection PyTypeChecker
+        self.loss_stats.update(float(previous_frame.combined_loss))
+
+    def compute_previous_state_target(self, previous_frame: 'StateFrame',
+                                      current_frame: 'StateFrame') -> Optional[tf.Tensor]:
+        scale = tf.constant(self.loss_stats.variance, dtype=self.dtype)
+        adjustment_ratio = tf.constant(self.loss_target_adjustment_ratio, dtype=self.dtype)
+        min_adjustment = tf.constant(self.min_loss_target_adjustment, dtype=self.dtype)
+        return self._compute_previous_state_target(current_frame.current_state, scale,
+                                                   adjustment_ratio, min_adjustment)

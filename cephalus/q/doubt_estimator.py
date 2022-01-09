@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Tuple
 
 import tensorflow as tf
 from tensorflow.keras import Model
+from tensorflow.keras.losses import MSE
 
 from cephalus.modules.interface import StateKernelModule
 from cephalus.names import Named
@@ -47,4 +48,4 @@ class AutoencoderDoubtEstimator(StateKernelModule, DoubtEstimator):
     def _apply_model(self, decision: 'ActionDecision'):
         target = tf.stop_gradient(decision.state)
         reconstructed = self._model(target[tf.newaxis, :])[0]
-        return tf.reduce_sum(tf.square(target - reconstructed))
+        return MSE(target, reconstructed)
