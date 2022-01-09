@@ -1,16 +1,17 @@
 from abc import ABC
 from typing import Dict, Union, Type
+from threading import Lock
 
 
+_COUNTER_LOCK = Lock()
 _COUNTERS: Dict[str, int] = {}
 
 
 def get_default_name(key: Union[str, Type, object]) -> str:
     if isinstance(key, str):
-        # TODO: This will need a lock to support multithreading.
-        counter = _COUNTERS.get(key, 0)
-        _COUNTERS[key] = counter + 1
-
+        with _COUNTER_LOCK:
+            counter = _COUNTERS.get(key, 0)
+            _COUNTERS[key] = counter + 1
         return '%s-%s' % (key, counter)
     elif hasattr(key, '__qualname__') or hasattr(key, '__name__'):
         module_name = getattr(key, '__module__', '')
