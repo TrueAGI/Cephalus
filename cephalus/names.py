@@ -1,3 +1,5 @@
+"""Named objects."""
+
 from abc import ABC
 from typing import Dict, Union, Type
 from threading import Lock
@@ -8,6 +10,8 @@ _COUNTERS: Dict[str, int] = {}
 
 
 def get_default_name(key: Union[str, Type, object]) -> str:
+    """Return a decent default name for objects whose creators didn't bother to provide one."""
+
     if isinstance(key, str):
         with _COUNTER_LOCK:
             counter = _COUNTERS.get(key, 0)
@@ -23,6 +27,8 @@ def get_default_name(key: Union[str, Type, object]) -> str:
 
 
 class Named(ABC):
+    """Abstract base class for named objects."""
+
     name: str
 
     def __init__(self, *, name: str = None):
