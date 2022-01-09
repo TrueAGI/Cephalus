@@ -17,6 +17,8 @@ __all__ = [
     'StateKernel'
 ]
 
+from cephalus.names import get_default_name
+
 LOGGER = logging.getLogger(__name__)
 
 Environment = TypeVar('Environment')
@@ -45,22 +47,16 @@ class StateKernel(Modeled, Generic[Environment]):
     _state_prediction_provider: 'StatePredictionProvider' = None
     _retroactive_gradient_provider: 'RetroactiveLossProvider' = None
     _trainable_weights: Tuple[tf.Variable, ...] = None
-    _stream_counter: int = 0
-
-    @classmethod
-    def next_default_stream_id(cls) -> str:
-        # TODO: This will need a lock to support multithreading.
-        stream_id = 'stream-%s' % cls._stream_counter
-        cls._stream_counter += 1
-        return stream_id
 
     def __init__(self, modules: Iterable['StateKernelModule[Environment]'] = None,
-                 config: Optional[StateKernelConfig] = None):
+                 config: Optional[StateKernelConfig] = None, *, name: str = None):
         self._modules = set()
         if modules:
             self.add_modules(*modules)
         if config is not None:
             self.configure(config)
+
+        super().__init__(name=name)
 
     def add_modules(self, *modules: 'StateKernelModule[Environment]') -> None:
         """Add a module to the state kernel."""
@@ -302,11 +298,9 @@ class StateKernel(Modeled, Generic[Environment]):
     def new_frame(self, previous_frame: StateFrame = None, stream_id: str = None) -> StateFrame:
         """Return a new decision frame, initializing the required fields appropriately."""
         assert self._config is not None
-        if stream_id is None:
-            if previous_frame is not None:
-                stream_id = previous_frame.stream_id
-            else:
-                stream_id = self.next_default_stream_id()
+        if stream_id is None and previous_frame is not None:
+            stream_id = previous_frame.stream_id
+        assert stream_id is not None
         new_frame = StateFrame(
             stream_id=stream_id,
             previous_state=self.get_previous_state(previous_frame),

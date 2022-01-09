@@ -32,7 +32,7 @@ class ActionDecision:
     q_value_target: tf.Tensor = None
 
 
-class ActionPolicy(Modeled, ABC):
+class ActionPolicy(Modeled):
 
     @abstractmethod
     def choose_action(self, decision: ActionDecision) -> None:
@@ -48,10 +48,11 @@ class ActionPolicy(Modeled, ABC):
 
 # TODO: Implement REINFORCE, Q Actor/Critic, AAC, PPO, etc., as well as the novel algorithms
 #       defined in the RewardInducedGradients project.
-class ContinuousActionPolicy(ActionPolicy, ABC):
+class ContinuousActionPolicy(ActionPolicy):
 
-    def __init__(self, policy_model: 'ProbabilisticModel'):
+    def __init__(self, policy_model: 'ProbabilisticModel', *, name: str = None):
         self.policy_model = policy_model
+        super().__init__(name=name)
 
     @abstractmethod
     def get_policy_loss(self, decision: ActionDecision) -> tf.Tensor:
@@ -90,8 +91,9 @@ class ContinuousActionPolicy(ActionPolicy, ABC):
 
 class DiscreteActionPolicy(ActionPolicy):
 
-    def __init__(self, exploration_policy: Callable[[int], bool] = None):
+    def __init__(self, exploration_policy: Callable[[int], bool] = None, *, name: str = None):
         self.exploration_policy = exploration_policy
+        super().__init__(name=name)
 
     def build(self) -> None:
         super().build()

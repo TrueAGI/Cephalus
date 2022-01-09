@@ -11,7 +11,7 @@
 # TODO: Once the different approaches are coded here, we'll need to run some
 #       tests to compare their performance.
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 import tensorflow as tf
@@ -83,7 +83,7 @@ class LossStateTD(RetroactiveLossProvider):
 
 # TODO: The autoencoder-based methods defined in rig.methods.decoder and rig.methods.encoder in the
 #       RewardInducedGradients project should be subclassed from this class.
-class TargetStateTD(RetroactiveLossProvider, ABC):
+class TargetStateTD(RetroactiveLossProvider):
     """Abstract base class for Temporal Differences-based approaches applied to predecessor state
     targets.
 
@@ -114,7 +114,7 @@ class TargetStateTD(RetroactiveLossProvider, ABC):
 # TODO: The gradient-based methods outlined in 'Temporal Differences for Infinite-Horizon
 #       Backpropagation.md' and defined in rltd_gp.hand_coded_solutions, both in the RLTD project,
 #       should be implemented as concrete subclasses of this class.
-class GradientStateTD(RetroactiveLossProvider, ABC):
+class GradientStateTD(RetroactiveLossProvider):
     """Abstract base class for Temporal Differences-based approaches applied to predecessor state
     gradients.
 

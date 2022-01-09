@@ -24,14 +24,15 @@ __all__ = [
 Environment = TypeVar('Environment')
 
 
-class StateKernelModule(Modeled, Generic[Environment], ABC):
+class StateKernelModule(Modeled, Generic[Environment]):
     """A pluggable module for the state kernel."""
 
     _kernel: Optional['StateKernel'] = None
     _loss_scale: float = 1.0
 
-    def __init__(self, loss_scale: float = 1.0):
-        self._loss_scale = float(loss_scale)
+    def __init__(self, *, loss_scale: float = None, name: str = None):
+        self._loss_scale = 1.0 if loss_scale is None else float(loss_scale)
+        super().__init__(name=name)
 
     @abstractmethod
     def configure(self, kernel: 'StateKernel') -> None:

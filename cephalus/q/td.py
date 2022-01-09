@@ -22,8 +22,8 @@ class TDAgent(Modeled):
 
     def __init__(self, q_model: 'ProbabilisticModel', action_policy: ActionPolicy,
                  discount: Union[float, Callable[[float, float], float]],
-                 stabilize: bool = True,
-                 doubt_estimator: 'DoubtEstimator' = None):
+                 stabilize: bool = True, doubt_estimator: 'DoubtEstimator' = None, *,
+                 name: str = None):
         self._q_model: 'ProbabilisticModel' = q_model
         self._action_policy = action_policy
         self.discount: float = discount
@@ -31,6 +31,8 @@ class TDAgent(Modeled):
         self._doubt_estimator: 'DoubtEstimator' = doubt_estimator
         self._previous_decision: Optional[ActionDecision] = None
         self._current_decision: Optional[ActionDecision] = None
+
+        super().__init__(name=name)
 
     @property
     def q_model(self) -> 'ProbabilisticModel':
@@ -97,10 +99,10 @@ class TDAgent(Modeled):
 
     def _close_previous_decision(self) -> Optional[tf.Tensor]:
         if self._previous_decision:
-            LOGGER.info("Previous step's predicted Q-value for task TDAgent: %s",
+            LOGGER.info("Previous step's predicted Q-value for task %s: %s", self,
                         self._previous_decision.selected_q_value_prediction.numpy())
             # noinspection PyTypeChecker
-            LOGGER.info("Previous step's target Q-value for task TDAgent: %s",
+            LOGGER.info("Previous step's target Q-value for task %s: %s", self,
                         float(self._previous_decision.q_value_target))
             policy_loss = self._action_policy.get_loss(self._previous_decision)
             if self._current_decision:
@@ -148,8 +150,8 @@ class TDAgent(Modeled):
             else:
                 self.min_observable_reward = min(reward, self.min_observable_reward)
 
-            LOGGER.info("Max observable reward: %s", self.max_observable_reward)
-            LOGGER.info("Min observable reward: %s", self.min_observable_reward)
+            LOGGER.info("Max observable reward for task %s: %s", self, self.max_observable_reward)
+            LOGGER.info("Min observable reward for task %s: %s", self, self.min_observable_reward)
 
         return self._close_previous_decision()
 
@@ -185,7 +187,7 @@ class TDAgent(Modeled):
             else:
                 self.min_observable_reward = min(reward, self.min_observable_reward)
 
-            LOGGER.info("Max observable reward: %s", self.max_observable_reward)
-            LOGGER.info("Min observable reward: %s", self.min_observable_reward)
+            LOGGER.info("Max observable reward for task %s: %s", self, self.max_observable_reward)
+            LOGGER.info("Min observable reward for task %s: %s", self, self.min_observable_reward)
 
         return self._close_previous_decision()

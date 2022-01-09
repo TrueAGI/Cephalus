@@ -9,17 +9,21 @@ __all__ = [
     'StateStream'
 ]
 
+from cephalus.names import Named
 
 Environment = TypeVar('Environment')
 
 
-class StateStream(Generic[Environment]):
+class StateStream(Named, Generic[Environment]):
     """Harnesses a state kernel to make a sequence of state predictions within an environment."""
 
-    def __init__(self, kernel: StateKernel[Environment], environment: Environment = None):
+    def __init__(self, kernel: StateKernel[Environment], environment: Environment = None, *,
+                 name: str = None):
         self._kernel = kernel
         self._environment = environment
         self._previous_frame: Optional[StateFrame] = None
+
+        super().__init__(name=name)
 
     @property
     def kernel(self) -> StateKernel[Environment]:
@@ -44,5 +48,5 @@ class StateStream(Generic[Environment]):
 
     def step(self) -> None:
         """Run the kernel for a single step in the environment."""
-        frame = self._kernel.step(self._environment, self._previous_frame)
+        frame = self._kernel.step(self._environment, self._previous_frame, self.name)
         self._previous_frame = frame

@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Union, List, Tuple, Type
 
 import tensorflow as tf
@@ -9,10 +9,11 @@ from tensorflow_probability import distributions as tfd
 from cephalus.modeled import Modeled
 
 
-class ProbabilisticModelBase(Modeled, ABC):
+class ProbabilisticModelBase(Modeled):
 
-    def __init__(self, optimizer: Union[str, optimizers.Optimizer] = None):
+    def __init__(self, optimizer: Union[str, optimizers.Optimizer] = None, *, name: str = None):
         self.optimizer = optimizers.get(optimizer) if optimizer else None
+        super().__init__(name=name)
 
     @property
     @abstractmethod
@@ -64,10 +65,11 @@ class ProbabilisticModelBase(Modeled, ABC):
 
 class ProbabilisticModel(ProbabilisticModelBase):
 
-    def __init__(self, parameter_model: Model, distribution_type: Type[tfd.Distribution]):
-        super().__init__(getattr(parameter_model, 'optimizer', None))
+    def __init__(self, parameter_model: Model, distribution_type: Type[tfd.Distribution], *,
+                 name: str = None):
         self.parameter_model = parameter_model
         self.distribution_type = distribution_type
+        super().__init__(getattr(parameter_model, 'optimizer', None), name=name)
 
     @property
     def input_shape(self):
@@ -100,11 +102,11 @@ class ProbabilisticModel(ProbabilisticModelBase):
 
 class DeterministicModel(ProbabilisticModel):
 
-    def __init__(self, parameter_model: Model):
+    def __init__(self, parameter_model: Model, *, name: str = None):
         if not isinstance(parameter_model, Layer):
             raise TypeError(type(parameter_model), Layer)
-        super().__init__(parameter_model, tfd.Deterministic)
         self._compiled_loss = getattr(parameter_model, 'compiled_loss', None)
+        super().__init__(parameter_model, tfd.Deterministic, name=name)
 
     @property
     def output_shape(self):

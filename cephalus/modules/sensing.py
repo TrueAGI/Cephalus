@@ -5,7 +5,7 @@
 #       more widely separated indices, which is not a bias that makes sense for categorical input
 #       spaces.
 import warnings
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from collections import deque
 from functools import wraps, partial
 from typing import Optional, TYPE_CHECKING, TypeVar, Union, Callable, Tuple, Dict, Iterable, \
@@ -30,11 +30,12 @@ Environment = TypeVar('Environment')
 SensorFunction = Callable[['Environment', 'StateFrame'], Union[float, np.ndarray, tf.Tensor]]
 
 
-class SimpleSensor(Sensor, ABC):
+class SimpleSensor(Sensor):
     _mapping: Layer = None
 
-    def __init__(self, sensor_id: str, raw_input_shape: RawTensorShape):
-        super().__init__()
+    def __init__(self, sensor_id: str, raw_input_shape: RawTensorShape, *,
+                 loss_scale: float = None, name: str = None):
+        super().__init__(loss_scale=loss_scale, name=name or sensor_id)
         self._sensor_id = sensor_id
         self._raw_input_shape = standardize_tensor_shape(raw_input_shape)
         self._sensor_embedding = None
@@ -85,8 +86,9 @@ class SimpleSensor(Sensor, ABC):
 class SensorLambda(SimpleSensor):
     """A wrapper for functions to treat them as simple sensors."""
 
-    def __init__(self, sensor_id: str, raw_input_shape, f: SensorFunction):
-        super().__init__(sensor_id, raw_input_shape)
+    def __init__(self, sensor_id: str, raw_input_shape, f: SensorFunction, *,
+                 loss_scale: float = None, name: str = None):
+        super().__init__(sensor_id, raw_input_shape, loss_scale=loss_scale, name=name)
         self.f = f
 
     def get_raw_input(self, environment: 'Environment',
@@ -101,11 +103,12 @@ class SensorLambda(SimpleSensor):
 class SensorHistory(Sensor):
     """Wrapper for a sensor which maintains a history cache of a set length."""
 
-    def __init__(self, wrapped: Sensor, max_length: int):
+    def __init__(self, wrapped: Sensor, max_length: int, *, loss_scale: float = None,
+                 name: str = None):
         self._wrapped = wrapped
         self.max_length: int = max_length
         self._cache: Deque[List[InputSample]] = deque()
-        super().__init__()
+        super().__init__(loss_scale=loss_scale, name=name)
 
     @property
     def wrapped(self) -> Sensor:

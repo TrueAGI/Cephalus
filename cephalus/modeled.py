@@ -1,10 +1,12 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import Tuple
 
 import tensorflow as tf
 
+from cephalus.names import Named
 
-class Modeled(ABC):
+
+class Modeled(Named):
     _built: bool = False
 
     @abstractmethod

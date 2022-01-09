@@ -20,9 +20,8 @@ class RewardDrivenTask(StateKernelModule):
     recent_episode_duration_update_rate: float = 0.1
 
     def __init__(self, agent: 'TDAgent',
-                 objective: Callable[[Any], Tuple[Union[float, tf.Tensor], bool]]):
-        super().__init__()
-
+                 objective: Callable[[Any], Tuple[Union[float, tf.Tensor], bool]], *,
+                 name: str = None):
         self.agent = agent
         self.objective = objective
 
@@ -35,6 +34,8 @@ class RewardDrivenTask(StateKernelModule):
         self.recent_episode_duration = 0.0
         self.longest_episode = 0
         self.episode_count = 0
+
+        super().__init__(name=name)
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
@@ -81,21 +82,21 @@ class RewardDrivenTask(StateKernelModule):
                 self.mean_episode_duration = self.episodic_reward_samples
 
         if LOGGER.isEnabledFor(logging.INFO):
-            # TODO: Name agents so we can use that instead of the class name.
-            task_name = self.agent.__class__.__name__
-            LOGGER.info("Total steps for task %s: %s", task_name, self.total_reward_samples)
-            LOGGER.info("Reward for task %s: %s", task_name, reward)
-            LOGGER.info("Mean reward for task: %s: %s", task_name, self.mean_reward)
-            LOGGER.info("Recent reward for task: %s: %s", task_name, self.recent_reward)
-            LOGGER.info("Current episode steps for task %s: %s", task_name,
+            LOGGER.info("Total steps for agent %s: %s", self.agent, self.total_reward_samples)
+            LOGGER.info("Reward for agent %s: %s", self.agent, reward)
+            LOGGER.info("Mean reward for agent: %s: %s", self.agent, self.mean_reward)
+            LOGGER.info("Recent reward for agent: %s: %s", self.agent, self.recent_reward)
+            LOGGER.info("Current episode steps for agent %s: %s", self.agent,
                         self.episodic_reward_samples)
-            LOGGER.info("Episode count for task %s: %s", task_name, self.episode_count)
-            LOGGER.info("Mean episode reward for task %s: %s", task_name, self.mean_episodic_reward)
-            LOGGER.info("Mean episode duration for task %s: %s", task_name,
+            LOGGER.info("Episode count for agent %s: %s", self.agent, self.episode_count)
+            LOGGER.info("Mean episode reward for agent %s: %s", self.agent,
+                        self.mean_episodic_reward)
+            LOGGER.info("Mean episode duration for agent %s: %s", self.agent,
                         self.mean_episode_duration)
-            LOGGER.info("Recent episode duration for task %s: %s", task_name,
+            LOGGER.info("Recent episode duration for agent %s: %s", self.agent,
                         self.recent_episode_duration)
-            LOGGER.info("Longest episode duration for task %s: %s", task_name, self.longest_episode)
+            LOGGER.info("Longest episode duration for agent %s: %s", self.agent,
+                        self.longest_episode)
 
         losses = [self.agent.accept_reward(reward)]
         if reset:
