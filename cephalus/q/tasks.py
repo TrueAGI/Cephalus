@@ -57,8 +57,8 @@ class RewardDrivenTask(StateKernelModule):
         self.total_reward_samples += 1
         update_rate = 1 / self.total_reward_samples
         self.mean_reward += (reward - self.mean_reward) * update_rate
-        self.recent_reward += (reward - self.recent_reward) * max(update_rate,
-                                                                  self.recent_reward_update_rate)
+        self.recent_reward += ((reward - self.recent_reward) *
+                               max(update_rate, self.recent_reward_update_rate))
         if reset:
             self.episode_count += 1
             update_rate = 1 / self.episode_count
