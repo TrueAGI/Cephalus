@@ -17,8 +17,6 @@ __all__ = [
     'StateKernel'
 ]
 
-from cephalus.names import get_default_name
-
 LOGGER = logging.getLogger(__name__)
 
 Environment = TypeVar('Environment')
