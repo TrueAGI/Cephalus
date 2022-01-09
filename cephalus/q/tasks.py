@@ -39,6 +39,7 @@ class RewardDrivenTask(StateKernelModule):
 
     def configure(self, kernel: 'StateKernel') -> None:
         super().configure(kernel)
+        self.agent.configure(kernel)
 
     def build(self) -> None:
         self.agent.build()

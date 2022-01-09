@@ -4,9 +4,12 @@ from typing import Union, Optional, TYPE_CHECKING, Tuple, Callable
 import tensorflow as tf
 
 from cephalus.modeled import Modeled
+from cephalus.modules.interface import StateKernelModule
 from cephalus.q.action_policies import ActionPolicy, ActionDecision
 
 if TYPE_CHECKING:
+    from cephalus.frame import StateFrame
+    from cephalus.kernel import StateKernel
     from cephalus.q.probabilistic_models import ProbabilisticModel
     from cephalus.q.doubt_estimator import DoubtEstimator
 
@@ -14,7 +17,7 @@ if TYPE_CHECKING:
 LOGGER = logging.getLogger(__name__)
 
 
-class TDAgent(Modeled):
+class TDAgent(StateKernelModule):
     max_observable_reward: float = None
     min_observable_reward: float = None
     episodes: int = 0
@@ -57,15 +60,29 @@ class TDAgent(Modeled):
             assert isinstance(self.discount, float)
             return self.discount
 
+    def configure(self, kernel: 'StateKernel') -> None:
+        super().configure(kernel)
+        if isinstance(self._doubt_estimator, StateKernelModule):
+            self._doubt_estimator.configure(kernel)
+
     def build(self) -> None:
         self._q_model.build()
         self._action_policy.build()
+        if isinstance(self._doubt_estimator, Modeled):
+            self._doubt_estimator.build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
         result = self._q_model.get_trainable_weights() + self._action_policy.get_trainable_weights()
-        if isinstance(self._doubt_estimator, Modeled):
+        if isinstance(self._doubt_estimator, StateKernelModule):
             result += self._doubt_estimator.get_trainable_weights()
         return result
+
+    def get_loss(self, previous_frame: 'StateFrame',
+                 current_frame: 'StateFrame') -> Optional[tf.Tensor]:
+        if isinstance(self._doubt_estimator, StateKernelModule):
+            return self._doubt_estimator.get_loss(previous_frame, current_frame)
+        else:
+            return None
 
     def _update_previous_decision(self) -> None:
         if not self._previous_decision:
@@ -108,13 +125,20 @@ class TDAgent(Modeled):
             LOGGER.info("Previous step's target Q-value for task %s: %s", self,
                         float(self._previous_decision.q_value_target))
             policy_loss = self._action_policy.get_loss(self._previous_decision)
+            if self._previous_decision:
+                previous_doubt = self._previous_decision.doubt
+            else:
+                previous_doubt = 0.0
             if self._current_decision:
                 current_doubt = self._current_decision.doubt
             else:
                 current_doubt = 0.0
+            previous_doubt += 0.000000001  # Numerical stability
+            current_doubt += 0.000000001
+            doubt_ratio = 2.0 * (previous_doubt / (previous_doubt + current_doubt))
+            assert doubt_ratio > 0.0
             # noinspection PyTypeChecker
-            loss = policy_loss * 2.0 * (self._previous_decision.doubt /
-                                        (self._previous_decision.doubt + current_doubt))
+            loss = policy_loss * doubt_ratio
         else:
             policy_loss = None
             loss = None
@@ -164,7 +188,7 @@ class TDAgent(Modeled):
         step = self._previous_decision.step + 1 if self._previous_decision else 0
         decision = ActionDecision(state_input, self.q_model, step)
         if self._doubt_estimator:
-            decision.doubt = self._doubt_estimator.get_doubt(decision)
+            decision.doubt = float(self._doubt_estimator.get_doubt(decision))
         self.action_policy.choose_action(decision)
         self._current_decision = decision
 

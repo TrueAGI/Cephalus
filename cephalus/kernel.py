@@ -345,6 +345,9 @@ class StateKernel(Modeled, Generic[Environment]):
         assert not previous_frame.trained
         assert previous_frame.tape is not None
 
+        # TODO: Moving this inside the stop_recording() below drastically impacts q value learning,
+        #       which shouldn't be the case. It should be investigated and resolved, and then this
+        #       should be moved back into the stop_recording().
         try:
             loss = self.get_loss(previous_frame, current_frame)
             assert loss.dtype == self.dtype
@@ -353,27 +356,28 @@ class StateKernel(Modeled, Generic[Environment]):
         finally:
             previous_frame.tape.__exit__(None, None, None)
 
-        tf.assert_rank(loss, 0)
-        assert not tf.math.is_nan(loss)
+        with current_frame.tape.stop_recording():
+            tf.assert_rank(loss, 0)
+            assert not tf.math.is_nan(loss)
 
-        weights = self.get_trainable_weights()
-        loss_gradients = previous_frame.tape.gradient(loss, weights)
-        assert not any(tf.reduce_any(tf.math.is_nan(loss_gradient))
-                       for loss_gradient in loss_gradients
-                       if loss_gradient is not None)
-        loss_gradients, _ = tf.clip_by_global_norm(loss_gradients, 1.0)
-        gradient_weight_pairs = [(gradient, weight)
-                                 for gradient, weight in zip(loss_gradients, weights)
-                                 if gradient is not None]
-        if gradient_weight_pairs:
-            self.optimizer.apply_gradients(gradient_weight_pairs)
+            weights = self.get_trainable_weights()
+            loss_gradients = previous_frame.tape.gradient(loss, weights)
+            assert not any(tf.reduce_any(tf.math.is_nan(loss_gradient))
+                           for loss_gradient in loss_gradients
+                           if loss_gradient is not None)
+            loss_gradients, _ = tf.clip_by_global_norm(loss_gradients, 1.0)
+            gradient_weight_pairs = [(gradient, weight)
+                                     for gradient, weight in zip(loss_gradients, weights)
+                                     if gradient is not None]
+            if gradient_weight_pairs:
+                self.optimizer.apply_gradients(gradient_weight_pairs)
 
-        # Train the loss providers here, before we remove the tape, in case they need gradient
-        # information.
-        previous_frame.combined_loss = loss
-        for module in self._modules:
-            if isinstance(module, RetroactiveLossProvider):
-                module.train_retroactive_loss(previous_frame, current_frame)
+            # Train the loss providers here, before we remove the tape, in case they need gradient
+            # information.
+            previous_frame.combined_loss = loss
+            for module in self._modules:
+                if isinstance(module, RetroactiveLossProvider):
+                    module.train_retroactive_loss(previous_frame, current_frame)
 
         previous_frame.tape = None
         previous_frame.trained = True
