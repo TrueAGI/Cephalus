@@ -88,7 +88,7 @@ class StandardInputAttentionProvider(InputAttentionProvider):
     def get_annotated_tensor(self, sample: 'InputSample', frame: 'StateFrame'):
         age = frame.clock_ticks - sample.time_stamp
         return tf.concat([
-            tf.convert_to_tensor([1.0 / (1.0 + age)], dtype=self.kernel.dtype),
+            tf.convert_to_tensor([1.0 - 1.0 / (1.0 + age)], dtype=self.kernel.dtype),
             sample.sensor_embedding,
             sample.value
         ], axis=-1)
