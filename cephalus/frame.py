@@ -19,6 +19,7 @@ class StateFrame:
     """A collection of all the information collected about a state prediction which may be required
     to train the kernel. Kernels may subclass this and add their own fields."""
 
+    stream_id: str  # Useful for tracing/debugging
     previous_state: Union[tf.Tensor, tf.Variable]
     tape: Optional[tf.GradientTape]
 

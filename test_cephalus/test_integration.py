@@ -1,3 +1,5 @@
+import logging
+import sys
 from typing import Tuple, Optional
 
 import gym
@@ -20,6 +22,11 @@ from cephalus.q.probabilistic_models import DeterministicModel
 from cephalus.q.tasks import RewardDrivenTask
 from cephalus.q.td import TDAgent
 from cephalus.stream import StateStream
+
+
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+LOGGER = logging.getLogger(__name__)
 
 
 class GymEnvSolver:

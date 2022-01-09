@@ -1,3 +1,4 @@
+import logging
 from typing import Callable, Any, Tuple, Union, Optional, TYPE_CHECKING
 
 import tensorflow as tf
@@ -8,6 +9,9 @@ if TYPE_CHECKING:
     from cephalus.frame import StateFrame
     from cephalus.kernel import StateKernel
     from cephalus.q.td import TDAgent
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class RewardDrivenTask(StateKernelModule):
@@ -76,25 +80,22 @@ class RewardDrivenTask(StateKernelModule):
             if self.episode_count == 0:
                 self.mean_episode_duration = self.episodic_reward_samples
 
-        # TODO: Use logging.
-        print("Total steps for task %s: %s" %
-              (self.agent.__class__.__name__, self.total_reward_samples))
-        print("Reward for task %s: %s" % (self.agent.__class__.__name__, reward))
-        print("Mean reward for task: %s: %s" % (self.agent.__class__.__name__, self.mean_reward))
-        print("Recent reward for task: %s: %s" %
-              (self.agent.__class__.__name__, self.recent_reward))
-        print("Current episode steps for task %s: %s" %
-              (self.agent.__class__.__name__, self.episodic_reward_samples))
-        print("Episode count for task %s: %s" %
-              (self.agent.__class__.__name__, self.episode_count))
-        print("Mean episode reward for task %s: %s" %
-              (self.agent.__class__.__name__, self.mean_episodic_reward))
-        print("Mean episode duration for task %s: %s" %
-              (self.agent.__class__.__name__, self.mean_episode_duration))
-        print("Recent episode duration for task %s: %s" %
-              (self.agent.__class__.__name__, self.recent_episode_duration))
-        print("Longest episode duration for task %s: %s" %
-              (self.agent.__class__.__name__, self.longest_episode))
+        if LOGGER.isEnabledFor(logging.INFO):
+            # TODO: Name agents so we can use that instead of the class name.
+            task_name = self.agent.__class__.__name__
+            LOGGER.info("Total steps for task %s: %s", task_name, self.total_reward_samples)
+            LOGGER.info("Reward for task %s: %s", task_name, reward)
+            LOGGER.info("Mean reward for task: %s: %s", task_name, self.mean_reward)
+            LOGGER.info("Recent reward for task: %s: %s", task_name, self.recent_reward)
+            LOGGER.info("Current episode steps for task %s: %s", task_name,
+                        self.episodic_reward_samples)
+            LOGGER.info("Episode count for task %s: %s", task_name, self.episode_count)
+            LOGGER.info("Mean episode reward for task %s: %s", task_name, self.mean_episodic_reward)
+            LOGGER.info("Mean episode duration for task %s: %s", task_name,
+                        self.mean_episode_duration)
+            LOGGER.info("Recent episode duration for task %s: %s", task_name,
+                        self.recent_episode_duration)
+            LOGGER.info("Longest episode duration for task %s: %s", task_name, self.longest_episode)
 
         losses = [self.agent.accept_reward(reward)]
         if reset:

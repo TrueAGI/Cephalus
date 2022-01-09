@@ -1,6 +1,6 @@
 """The state kernel is a configurable kernel for online neural learning of sequential state updates.
 This module defines the state kernel and the abstract interfaces for its modules."""
-
+import logging
 from typing import Optional, Union, Iterable, Tuple, Set, TypeVar, \
     Generic, List
 
@@ -17,6 +17,7 @@ __all__ = [
     'StateKernel'
 ]
 
+LOGGER = logging.getLogger(__name__)
 
 Environment = TypeVar('Environment')
 
@@ -44,6 +45,14 @@ class StateKernel(Modeled, Generic[Environment]):
     _state_prediction_provider: 'StatePredictionProvider' = None
     _retroactive_gradient_provider: 'RetroactiveLossProvider' = None
     _trainable_weights: Tuple[tf.Variable, ...] = None
+    _stream_counter: int = 0
+
+    @classmethod
+    def next_default_stream_id(cls) -> str:
+        # TODO: This will need a lock to support multithreading.
+        stream_id = 'stream-%s' % cls._stream_counter
+        cls._stream_counter += 1
+        return stream_id
 
     def __init__(self, modules: Iterable['StateKernelModule[Environment]'] = None,
                  config: Optional[StateKernelConfig] = None):
@@ -103,12 +112,13 @@ class StateKernel(Modeled, Generic[Environment]):
         self.recompute_trainable_weights()
         super().build()
 
-    def step(self, environment: Environment, previous_frame: StateFrame = None) -> StateFrame:
+    def step(self, environment: Environment, previous_frame: StateFrame = None,
+             stream_id: str = None) -> StateFrame:
         """Run the kernel in the environment for a single step. Return the new frame."""
         if not self.is_built:
             self.build()
 
-        frame = self.new_frame(previous_frame)
+        frame = self.new_frame(previous_frame, stream_id)
 
         self.gather_inputs(environment, frame)
         self.input_attention_provider.attend_inputs(frame)
@@ -254,11 +264,12 @@ class StateKernel(Modeled, Generic[Environment]):
                 scaled_module_loss: tf.Tensor = module.loss_scale * module_loss
                 losses.append(scaled_module_loss)
 
-                # TODO: Use logging. Also, provide a way for the user to capture loss curves over
-                #       time for each module and retrieve them easily. And modules should be named
-                #       (manually, or else automatically at config time with a reasonable default)
-                #       so we can identify them easily.
-                print("Loss for %s: %s" % (module.__class__.__name__, scaled_module_loss.numpy()))
+                # TODO: Provide a way for the user to capture loss curves over time for each
+                #       module and retrieve them easily. And modules should be named (manually,
+                #       or else automatically at config time with a reasonable default) so we
+                #       can identify them easily.
+                LOGGER.info("Loss for module %s in stream %s: %s", module.__class__.__name__,
+                            previous_frame.stream_id, scaled_module_loss.numpy())
 
         if len(losses) == 1:
             return losses[0]
@@ -288,18 +299,25 @@ class StateKernel(Modeled, Generic[Environment]):
             tape.watch(weight)
         return tape
 
-    def new_frame(self, previous_frame: StateFrame = None) -> StateFrame:
+    def new_frame(self, previous_frame: StateFrame = None, stream_id: str = None) -> StateFrame:
         """Return a new decision frame, initializing the required fields appropriately."""
         assert self._config is not None
+        if stream_id is None:
+            if previous_frame is not None:
+                stream_id = previous_frame.stream_id
+            else:
+                stream_id = self.next_default_stream_id()
         new_frame = StateFrame(
+            stream_id=stream_id,
             previous_state=self.get_previous_state(previous_frame),
             tape=self.new_gradient_tape(),
-            clock_ticks=0 if previous_frame is None else 1 + previous_frame.clock_ticks
+            clock_ticks=0 if previous_frame is None else 1 + previous_frame.clock_ticks,
         )
         for module in self._modules:
             module_data = module.get_new_frame_data(new_frame, previous_frame)
             if module_data is not None:
                 new_frame.module_data[module] = module_data
+        LOGGER.info("Incremented clock tick to %s for stream %s.", new_frame.clock_ticks, stream_id)
         return new_frame
 
     def gather_inputs(self, environment: Environment, frame: StateFrame) -> None:

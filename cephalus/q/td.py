@@ -1,3 +1,4 @@
+import logging
 from typing import Union, Optional, TYPE_CHECKING, Tuple, Callable
 
 import tensorflow as tf
@@ -8,6 +9,9 @@ from cephalus.q.action_policies import ActionPolicy, ActionDecision
 if TYPE_CHECKING:
     from cephalus.q.probabilistic_models import ProbabilisticModel
     from cephalus.q.doubt_estimator import DoubtEstimator
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class TDAgent(Modeled):
@@ -93,12 +97,11 @@ class TDAgent(Modeled):
 
     def _close_previous_decision(self) -> Optional[tf.Tensor]:
         if self._previous_decision:
-            # TODO: Use logging.
-            print("Previous step's predicted Q-value for task TDAgent:",
-                  self._previous_decision.selected_q_value_prediction.numpy())
+            LOGGER.info("Previous step's predicted Q-value for task TDAgent: %s",
+                        self._previous_decision.selected_q_value_prediction.numpy())
             # noinspection PyTypeChecker
-            print("Previous step's target Q-value for task TDAgent:",
-                  float(self._previous_decision.q_value_target))
+            LOGGER.info("Previous step's target Q-value for task TDAgent: %s",
+                        float(self._previous_decision.q_value_target))
             policy_loss = self._action_policy.get_loss(self._previous_decision)
             if self._current_decision:
                 current_doubt = self._current_decision.doubt
@@ -145,8 +148,8 @@ class TDAgent(Modeled):
             else:
                 self.min_observable_reward = min(reward, self.min_observable_reward)
 
-            print("Max observable reward:", self.max_observable_reward)
-            print("Min observable reward:", self.min_observable_reward)
+            LOGGER.info("Max observable reward: %s", self.max_observable_reward)
+            LOGGER.info("Min observable reward: %s", self.min_observable_reward)
 
         return self._close_previous_decision()
 
@@ -182,7 +185,7 @@ class TDAgent(Modeled):
             else:
                 self.min_observable_reward = min(reward, self.min_observable_reward)
 
-            print("Max observable reward:", self.max_observable_reward)
-            print("Min observable reward:", self.min_observable_reward)
+            LOGGER.info("Max observable reward: %s", self.max_observable_reward)
+            LOGGER.info("Min observable reward: %s", self.min_observable_reward)
 
         return self._close_previous_decision()
