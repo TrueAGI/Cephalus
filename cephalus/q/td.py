@@ -62,7 +62,10 @@ class TDAgent(Modeled):
         self._action_policy.build()
 
     def get_trainable_weights(self) -> Tuple[tf.Variable, ...]:
-        return self._q_model.get_trainable_weights() + self._action_policy.get_trainable_weights()
+        result = self._q_model.get_trainable_weights() + self._action_policy.get_trainable_weights()
+        if isinstance(self._doubt_estimator, Modeled):
+            result += self._doubt_estimator.get_trainable_weights()
+        return result
 
     def _update_previous_decision(self) -> None:
         if not self._previous_decision:
