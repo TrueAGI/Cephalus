@@ -1,4 +1,22 @@
-# Planned
+# Cephalus: TODO
+
+---
+
+* [Source]
+* [Readme]
+* [License]
+* [Design Goals]
+* [TODO] (this document)
+
+[Source]: https://github.com/TrueAGI/Cephalus
+[Readme]: README.md
+[License]: LICENSE.md
+[Design Goals]: Design%20Goals.md
+[TODO]: TODO.md
+
+---
+
+## Planned Changes
 
 * Unit tests!
 * Performance testing: Processing speed, and speed, consistency, and stability 
@@ -33,7 +51,7 @@
   to action selection), and which I can cite existing research for because 
   they aren't novel after all.
 
-# Completed
+## Completed Changes
 
 * Make the modules list dynamic; users should be able to add or remove
   arbitrary modules on the fly, with the possible exception of the state

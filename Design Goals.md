@@ -1,4 +1,22 @@
-# Design Goals
+# Cephalus: Design Goals
+
+---
+
+* [Source]
+* [Readme]
+* [License]
+* [Design Goals] (this document)
+* [TODO]
+
+[Source]: https://github.com/TrueAGI/Cephalus
+[Readme]: README.md
+[License]: LICENSE.md
+[Design Goals]: Design%20Goals.md
+[TODO]: TODO.md
+
+---
+
+## Design Goals:
 
 * The "keras" of reinforcement learning:
   * Fully modular design.
