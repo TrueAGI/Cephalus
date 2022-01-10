@@ -11,3 +11,5 @@
   information.
 * Supports dynamic reconfiguration of modules, including observation spaces, action spaces, and
   agents, midstream during execution.
+* Full persistence, including not only models but state information of running kernels, to enable
+  stopping and resuming processes mid-stream.
